@@ -10,6 +10,8 @@ fotos**, o **tempo de voo**, as **baterias** e a **precisão esperada**. Exporta
 
 👉 **[Abrir o planejador](https://maessa-oliveira.github.io/voo-drone/)**: já abre com uma área de exemplo.
 
+![Planejador de voo](docs/captura.png)
+
 > 🇬🇧 *Browser-based photogrammetric flight planner for drone mapping: GSD, flight lines, photo count,
 > flight time, batteries and expected accuracy, with KML export.*
 
