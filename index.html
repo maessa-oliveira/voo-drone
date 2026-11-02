@@ -81,8 +81,15 @@
       <tr><th>Precisão esperada*</th><td id="rPrec">—</td></tr>
     </table>
     <p class="dica">* Com RTK/PPK ou pontos de controle bem distribuídos. Estimativa prática; confira com pontos de checagem.</p>
-    <div class="acoes">
-      <button type="button" id="btnKML">Baixar KML</button>
+    <div class="exportar">
+      <span class="rot">Levar para o drone</span>
+      <div class="acoes">
+        <button type="button" id="btnKML" title="Área e rota para Google Earth; no DJI Pilot 2 importe no modo Mapeamento">KML (DJI Pilot 2 / Google Earth)</button>
+        <button type="button" id="btnLitchi" class="sec" title="Missão por waypoints para o app Litchi (drones DJI)">Litchi (CSV)</button>
+        <button type="button" id="btnQGC" class="sec" title="Missão para QGroundControl (PX4/ArduPilot)">QGroundControl (.plan)</button>
+        <button type="button" id="btnMP" class="sec" title="Missão para Mission Planner (ArduPilot)">Mission Planner (.waypoints)</button>
+      </div>
+      <p class="dica">Confira a missão no simulador ou no app antes de voar: altitudes relativas à decolagem, sem seguir o relevo.</p>
     </div>
     <p id="erro" class="erro" role="alert"></p>
   </section>

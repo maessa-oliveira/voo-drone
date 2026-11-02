@@ -65,6 +65,12 @@ try {
   await page.setInputFiles('#arquivo', { name: 'area.kmz', mimeType: 'application/vnd.google-earth.kmz', buffer: kmzDe('doc.kml', Buffer.from(kml)) });
   await page.waitForFunction((ha) => window.__voo && Math.abs(window.__voo.areaHa - ha) < 0.01, tri.ha);
   console.log('KML e KMZ ok');
+  for (const [id, nome, teste] of [['#btnLitchi', 'missao-litchi.csv', (t) => t.startsWith('latitude,longitude')],
+    ['#btnQGC', 'missao.plan', (t) => JSON.parse(t).fileType === 'Plan'], ['#btnMP', 'missao.waypoints', (t) => t.startsWith('QGC WPL 110')]]) {
+    const [d] = await Promise.all([page.waitForEvent('download'), page.click(id)]);
+    if (d.suggestedFilename() !== nome || !teste(await readFile(await d.path(), 'utf8'))) falha('exportação ' + nome);
+  }
+  console.log('missões ok');
 } finally {
   await browser.close();
   srv.close();

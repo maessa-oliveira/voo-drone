@@ -1,5 +1,5 @@
 // Interface do planejador. Os cálculos estão em ./voo.js.
-import { CAMERAS, gsd, planejar, direcaoSugerida, paraKML, lerKML, kmlDeKMZ, EXEMPLO_AREA } from './voo.js';
+import { CAMERAS, gsd, planejar, direcaoSugerida, paraKML, lerKML, kmlDeKMZ, paraLitchiCSV, paraQGCPlan, paraWaypointsMP, EXEMPLO_AREA } from './voo.js';
 
 const L = window.L;
 const $ = (id) => document.getElementById(id);
@@ -139,14 +139,20 @@ $('btnLimpar').addEventListener('click', () => {
 });
 $('btnSugerir').addEventListener('click', () => { if (vertices.length >= 3) { $('direcao').value = direcaoSugerida(vertices); atualizar(); } });
 $('btnExemplo').addEventListener('click', carregarExemplo);
-$('btnKML').addEventListener('click', () => {
-  if (!plano) { $('erro').textContent = 'Desenhe uma área primeiro.'; return; }
-  const kml = paraKML(plano, vertices, { nome: `Plano de voo ${cam().nome}`, altura: params().altura });
-  const url = URL.createObjectURL(new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' }));
-  const a = document.createElement('a');
-  a.href = url; a.download = 'plano-de-voo.kml'; document.body.append(a); a.click(); a.remove();
+function baixar(nome, texto, tipo) {
+  const url = URL.createObjectURL(new Blob([texto], { type: tipo }));
+  const el = document.createElement('a');
+  el.href = url; el.download = nome; document.body.append(el); el.click(); el.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-});
+}
+const exportar = (fn) => () => {
+  if (!plano) { $('erro').textContent = 'Desenhe ou abra uma área primeiro.'; return; }
+  fn(params().altura);
+};
+$('btnKML').addEventListener('click', exportar((altura) => baixar('plano-de-voo.kml', paraKML(plano, vertices, { nome: `Plano de voo ${cam().nome}`, altura }), 'application/vnd.google-earth.kml+xml')));
+$('btnLitchi').addEventListener('click', exportar((altura) => baixar('missao-litchi.csv', paraLitchiCSV(plano, { altura }), 'text/csv')));
+$('btnQGC').addEventListener('click', exportar((altura) => baixar('missao.plan', paraQGCPlan(plano, { altura }), 'application/json')));
+$('btnMP').addEventListener('click', exportar((altura) => baixar('missao.waypoints', paraWaypointsMP(plano, { altura }), 'text/plain')));
 
 async function inflarRaw(bytes) {
   const ds = new DecompressionStream('deflate-raw');

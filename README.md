@@ -33,6 +33,20 @@ fotos**, o **tempo de voo**, as **baterias** e a **precisão esperada**. Exporta
 - **Abre a área em KML ou KMZ** (Google Earth, QGIS, arquivo do cliente) ou desenhe no mapa.
 - Mapa de satélite ou de ruas; vértices arrastáveis.
 
+## Levar o plano para o drone
+
+Não existe um arquivo único aceito por todos os drones. O planejador exporta para as famílias mais comuns:
+
+| Arquivo | Onde usar |
+|---|---|
+| **KML** (área + rota) | DJI Pilot 2 (Mavic 3 Enterprise, Matrice): importe a área no modo Mapeamento; Google Earth |
+| **Litchi (CSV)** | App Litchi, para drones DJI de consumo e prosumer (waypoints, câmera a −90°, foto por distância) |
+| **QGroundControl (.plan)** | Drones PX4/ArduPilot (MAVLink) |
+| **Mission Planner (.waypoints)** | ArduPilot |
+
+> As altitudes são relativas ao ponto de decolagem (não seguem o relevo). Confira a missão no
+> simulador ou no app antes de voar.
+
 - `src/voo.js`: todo o cálculo, **sem dependência de navegador** (testado em Node).
 - `src/app.js`: interface com Leaflet.
 

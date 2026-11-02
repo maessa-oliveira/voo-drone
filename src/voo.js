@@ -253,3 +253,82 @@ export async function kmlDeKMZ(buffer, inflarRaw) {
   if (e.metodo === 8) return dec.decode(await inflarRaw(dados));
   throw new Error('compressão do KMZ não suportada');
 }
+
+// ---------- missões para o drone ----------
+// Não existe um arquivo aceito por todos os drones. Cobrimos as três famílias mais comuns:
+//  - Litchi (CSV): drones DJI de consumo/prosumer pelo app Litchi;
+//  - QGroundControl (.plan): drones PX4/ArduPilot (MAVLink);
+//  - Mission Planner (.waypoints, "QGC WPL 110"): ArduPilot.
+// Para DJI Pilot 2 (Mavic 3E, Matrice), importe o KML da área no modo Mapeamento.
+// Altitudes relativas ao ponto de decolagem; a foto é disparada por distância (a cada "base" metros).
+
+const f7 = (v) => v.toFixed(7);
+
+/** Waypoints da rota: início e fim de cada linha, na ordem de voo. */
+export function waypoints(plano) {
+  return plano.caminhoGeo.map(([lat, lon]) => ({ lat, lon }));
+}
+
+/** Missão Litchi (CSV). Câmera a −90°, foto por distância, velocidade do plano. */
+export function paraLitchiCSV(plano, { altura }) {
+  const cab = 'latitude,longitude,altitude(m),heading(deg),curvesize(m),rotationdir,gimbalmode,gimbalpitchangle,'
+    + Array.from({ length: 15 }, (_, i) => `actiontype${i + 1},actionparam${i + 1}`).join(',')
+    + ',altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(m),poi_altitudemode,photo_timeinterval,photo_distinterval';
+  const wps = waypoints(plano);
+  const linhas = wps.map((w, i) => {
+    const prox = wps[i + 1] ?? wps[i - 1];
+    const rumo = Math.round(((Math.atan2((prox.lon - w.lon) * Math.cos(w.lat * Math.PI / 180), prox.lat - w.lat) * 180 / Math.PI) + 360) % 360);
+    const acoes = Array.from({ length: 15 }, () => '-1,0').join(',');
+    return [f7(w.lat), f7(w.lon), altura.toFixed(1), i + 1 < wps.length ? rumo : (rumo + 180) % 360, 0, 0, 2, -90, acoes,
+      0, plano.velocidade.toFixed(1), 0, 0, 0, 0, -1, plano.base.toFixed(1)].join(',');
+  });
+  return [cab, ...linhas].join('\n') + '\n';
+}
+
+/** Missão QGroundControl (.plan, JSON). */
+export function paraQGCPlan(plano, { altura }) {
+  const wps = waypoints(plano);
+  let seq = 1;
+  const item = (command, params, extra = {}) => ({
+    autoContinue: true, command, doJumpId: seq++, frame: 3, params, type: 'SimpleItem', ...extra,
+  });
+  const itens = [
+    item(22, [0, 0, 0, null, wps[0].lat, wps[0].lon, altura]), // decolagem
+    item(178, [1, plano.velocidade, -1, 0, 0, 0, 0], { frame: 2 }), // velocidade
+    item(205, [-90, 0, 0, 0, 0, 0, 2], { frame: 2 }), // gimbal para baixo
+  ];
+  wps.forEach((w, i) => {
+    itens.push(item(16, [0, 0, 0, null, w.lat, w.lon, altura]));
+    if (i % 2 === 0) itens.push(item(206, [plano.base, 0, 1, 0, 0, 0, 0], { frame: 2 })); // liga fotos na linha
+    else itens.push(item(206, [0, 0, 0, 0, 0, 0, 0], { frame: 2 })); // desliga na curva
+  });
+  itens.push(item(20, [0, 0, 0, 0, 0, 0, 0], { frame: 2 })); // retorna para casa
+  return JSON.stringify({
+    fileType: 'Plan', groundStation: 'QGroundControl', version: 1,
+    geoFence: { circles: [], polygons: [], version: 2 },
+    rallyPoints: { points: [], version: 2 },
+    mission: {
+      cruiseSpeed: plano.velocidade, hoverSpeed: 5, firmwareType: 12, vehicleType: 2, version: 2,
+      globalPlanAltitudeMode: 1,
+      plannedHomePosition: [wps[0].lat, wps[0].lon, 0],
+      items: itens,
+    },
+  }, null, 2);
+}
+
+/** Missão Mission Planner / ArduPilot (.waypoints, formato QGC WPL 110). */
+export function paraWaypointsMP(plano, { altura }) {
+  const wps = waypoints(plano);
+  const l = ['QGC WPL 110'];
+  const add = (cur, frame, cmd, p, lat = 0, lon = 0, alt = 0) =>
+    l.push([l.length - 1, cur, frame, cmd, ...p, f7(lat), f7(lon), alt.toFixed(2), 1].join('\t'));
+  add(1, 0, 16, [0, 0, 0, 0], wps[0].lat, wps[0].lon, 0); // home
+  add(0, 3, 22, [0, 0, 0, 0], 0, 0, altura); // decolagem
+  add(0, 3, 178, [1, plano.velocidade, -1, 0]);
+  wps.forEach((w, i) => {
+    add(0, 3, 16, [0, 0, 0, 0], w.lat, w.lon, altura);
+    add(0, 3, 206, i % 2 === 0 ? [plano.base, 0, 1, 0] : [0, 0, 0, 0]);
+  });
+  add(0, 3, 20, [0, 0, 0, 0]);
+  return l.join('\n') + '\n';
+}

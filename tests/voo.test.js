@@ -104,3 +104,27 @@ test('lê área de KML (Polygon, LineString) e de KMZ', async () => {
   const pl = planejar({ area: a, camera: CAMERAS.m3e, altura: 100, frontal: 0.8, lateral: 0.7 });
   assert.ok(pl.areaHa > 100);
 });
+
+test('missões para o drone: Litchi CSV, QGroundControl .plan e Mission Planner .waypoints', async () => {
+  const { paraLitchiCSV, paraQGCPlan, paraWaypointsMP, waypoints } = await import('../src/voo.js');
+  const pl = planejar({ area: retangulo(400, 300), camera: CAMERAS.m3e, altura: 90, frontal: 0.8, lateral: 0.7, direcao: 0 });
+  const n = waypoints(pl).length;
+  assert.equal(n, pl.nLinhas * 2);
+  const csv = paraLitchiCSV(pl, { altura: 90 }).trim().split('\n');
+  assert.equal(csv.length, n + 1);
+  const cab = csv[0].split(','), l1 = csv[1].split(',');
+  assert.equal(cab.length, l1.length);
+  assert.equal(l1[cab.indexOf('altitude(m)')], '90.0');
+  assert.equal(l1[cab.indexOf('gimbalpitchangle')], '-90');
+  perto(+l1[cab.indexOf('photo_distinterval')], pl.base, 0.06);
+  const plan = JSON.parse(paraQGCPlan(pl, { altura: 90 }));
+  const itens = plan.mission.items;
+  assert.equal(itens[0].command, 22);
+  assert.equal(itens.filter((i) => i.command === 16).length, n);
+  assert.equal(itens.at(-1).command, 20);
+  assert.ok(itens.every((it, k) => it.doJumpId === k + 1));
+  const mp = paraWaypointsMP(pl, { altura: 90 }).trim().split('\n');
+  assert.equal(mp[0], 'QGC WPL 110');
+  assert.equal(mp.slice(1).filter((x) => x.split('\t')[3] === '16').length, n + 1); // + home
+  assert.ok(mp.slice(1).every((x, k) => x.split('\t')[0] === String(k) && x.split('\t').length === 12));
+});

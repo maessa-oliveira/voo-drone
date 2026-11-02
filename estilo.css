@@ -63,3 +63,5 @@ a { color: var(--destaque); }
 @media (max-width: 720px) {
   #painel { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 55vh; padding: 12px; }
 }
+.exportar { display: grid; gap: 8px; border-top: 1px solid var(--borda); padding-top: 10px; }
+.exportar .rot { font-size: 12px; color: var(--suave); text-transform: uppercase; letter-spacing: .08em; }
