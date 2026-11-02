@@ -10,8 +10,9 @@ const tipos = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 const srv = createServer(async (req, res) => {
   try {
     const p = join(raiz, decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/\/$/, '/index.html'));
+    const corpo = await readFile(p);
     res.writeHead(200, { 'content-type': tipos[extname(p)] || 'application/octet-stream' });
-    res.end(await readFile(p));
+    res.end(corpo);
   } catch { res.writeHead(404); res.end(); }
 }).listen(0);
 const url = `http://localhost:${srv.address().port}/`;
