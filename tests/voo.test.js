@@ -84,3 +84,23 @@ test('exemplo e KML', () => {
   assert.ok(kml.startsWith('<?xml') && kml.includes('<LineString>') && kml.trim().endsWith('</kml>'));
   assert.equal((kml.match(/<Placemark>/g) || []).length, 2);
 });
+
+test('lê área de KML (Polygon, LineString) e de KMZ', async () => {
+  const { lerKML, kmlDeKMZ } = await import('../src/voo.js');
+  const zlib = await import('node:zlib');
+  const kml = `<?xml version="1.0"?><kml><Document><Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>
+    -38.50,-12.50,0 -38.49,-12.50,0 -38.49,-12.49,0 -38.50,-12.49,0 -38.50,-12.50,0
+  </coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>`;
+  const a = lerKML(kml);
+  assert.equal(a.length, 4);
+  assert.deepEqual(a[0], [-12.5, -38.5]);
+  assert.equal(lerKML('<LineString><coordinates>1,2 3,4 5,6</coordinates></LineString>').length, 3);
+  assert.throws(() => lerKML('<Point><coordinates>1,2</coordinates></Point>'), /polígono/);
+  // monta um KMZ (ZIP com deflate) na mão
+  const { kmzDe } = await import('./kmz.mjs');
+  const kmz = kmzDe('doc.kml', Buffer.from(kml));
+  const texto = await kmlDeKMZ(kmz, (b) => zlib.inflateRawSync(b));
+  assert.deepEqual(lerKML(texto), a);
+  const pl = planejar({ area: a, camera: CAMERAS.m3e, altura: 100, frontal: 0.8, lateral: 0.7 });
+  assert.ok(pl.areaHa > 100);
+});

@@ -56,6 +56,15 @@ try {
   const kml = await readFile(await dl.path(), 'utf8');
   if (!kml.includes('<LineString>') || !kml.trim().endsWith('</kml>')) falha('KML inválido');
   console.log('interação ok', JSON.stringify(tri), 'kml', kml.length, 'bytes');
+  // abre o KML exportado e um KMZ montado com ele
+  await page.setInputFiles('#arquivo', { name: 'area.kml', mimeType: 'application/vnd.google-earth.kml+xml', buffer: Buffer.from(kml) });
+  await page.waitForFunction((ha) => window.__voo && Math.abs(window.__voo.areaHa - ha) < 0.01, tri.ha);
+  const { kmzDe } = await import('./kmz.mjs');
+  await page.click('#btnExemplo');
+  await page.waitForFunction(() => window.__voo.areaHa > 40);
+  await page.setInputFiles('#arquivo', { name: 'area.kmz', mimeType: 'application/vnd.google-earth.kmz', buffer: kmzDe('doc.kml', Buffer.from(kml)) });
+  await page.waitForFunction((ha) => window.__voo && Math.abs(window.__voo.areaHa - ha) < 0.01, tri.ha);
+  console.log('KML e KMZ ok');
 } finally {
   await browser.close();
   srv.close();

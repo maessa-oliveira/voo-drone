@@ -193,3 +193,63 @@ export const EXEMPLO_AREA = [
   [-12.24180, -38.96950], [-12.24010, -38.96420], [-12.24390, -38.96160],
   [-12.24750, -38.96390], [-12.24690, -38.96940],
 ];
+
+/**
+ * Lê a área de um KML (texto): usa o primeiro Polygon (anel externo); sem polígono, o primeiro
+ * LinearRing ou LineString com 3 ou mais pontos. Devolve [[lat, lon], ...] sem repetir o 1º ponto.
+ */
+export function lerKML(texto) {
+  const s = String(texto);
+  const blocos = [
+    /<Polygon[\s\S]*?<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/i,
+    /<LinearRing>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/i,
+    /<LineString>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/i,
+  ];
+  for (const re of blocos) {
+    const m = s.match(re);
+    if (!m) continue;
+    const pts = m[1].trim().split(/\s+/).map((t) => t.split(',').map(Number))
+      .filter((c) => c.length >= 2 && Number.isFinite(c[0]) && Number.isFinite(c[1]))
+      .map(([lon, lat]) => [lat, lon]);
+    if (pts.length > 1) {
+      const [a, b] = [pts[0], pts[pts.length - 1]];
+      if (Math.abs(a[0] - b[0]) < 1e-12 && Math.abs(a[1] - b[1]) < 1e-12) pts.pop();
+    }
+    if (pts.length >= 3) return pts;
+  }
+  throw new Error('não encontrei um polígono com 3 ou mais vértices no arquivo');
+}
+
+/**
+ * Extrai o primeiro .kml de um KMZ (arquivo ZIP). `inflarRaw(bytes)` descompacta "deflate" puro
+ * (no navegador, DecompressionStream; no Node, zlib.inflateRawSync).
+ */
+export async function kmlDeKMZ(buffer, inflarRaw) {
+  const dv = new DataView(buffer instanceof ArrayBuffer ? buffer : buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+  const u8 = new Uint8Array(dv.buffer);
+  // diretório central: procura o registro de fim (EOCD) de trás para frente
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('arquivo KMZ inválido');
+  const total = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const dec = new TextDecoder();
+  const entradas = [];
+  for (let k = 0; k < total; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const metodo = dv.getUint16(p + 10, true), comp = dv.getUint32(p + 20, true);
+    const nLen = dv.getUint16(p + 28, true), xLen = dv.getUint16(p + 30, true), cLen = dv.getUint16(p + 32, true);
+    const local = dv.getUint32(p + 42, true);
+    entradas.push({ nome: dec.decode(u8.subarray(p + 46, p + 46 + nLen)), metodo, comp, local });
+    p += 46 + nLen + xLen + cLen;
+  }
+  const e = entradas.find((x) => /\.kml$/i.test(x.nome));
+  if (!e) throw new Error('o KMZ não tem arquivo .kml dentro');
+  const ini = e.local + 30 + dv.getUint16(e.local + 26, true) + dv.getUint16(e.local + 28, true);
+  const dados = u8.subarray(ini, ini + e.comp);
+  if (e.metodo === 0) return dec.decode(dados);
+  if (e.metodo === 8) return dec.decode(await inflarRaw(dados));
+  throw new Error('compressão do KMZ não suportada');
+}

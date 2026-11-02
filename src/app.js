@@ -1,5 +1,5 @@
 // Interface do planejador. Os cálculos estão em ./voo.js.
-import { CAMERAS, gsd, planejar, direcaoSugerida, paraKML, EXEMPLO_AREA } from './voo.js';
+import { CAMERAS, gsd, planejar, direcaoSugerida, paraKML, lerKML, kmlDeKMZ, EXEMPLO_AREA } from './voo.js';
 
 const L = window.L;
 const $ = (id) => document.getElementById(id);
@@ -147,6 +147,35 @@ $('btnKML').addEventListener('click', () => {
   a.href = url; a.download = 'plano-de-voo.kml'; document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
+
+async function inflarRaw(bytes) {
+  const ds = new DecompressionStream('deflate-raw');
+  const saida = new Response(new Blob([bytes]).stream().pipeThrough(ds));
+  return new Uint8Array(await saida.arrayBuffer());
+}
+$('arquivo').addEventListener('change', async () => {
+  const f = $('arquivo').files[0];
+  $('arquivo').value = '';
+  if (!f) return;
+  $('erro').textContent = '';
+  try {
+    const buf = await f.arrayBuffer();
+    const texto = /\.kmz$/i.test(f.name) || new Uint8Array(buf, 0, 2).join() === '80,75'
+      ? await kmlDeKMZ(buf, inflarRaw)
+      : new TextDecoder().decode(buf);
+    usarArea(lerKML(texto));
+  } catch (e) {
+    $('erro').textContent = `${f.name}: ${e.message}.`;
+  }
+});
+
+function usarArea(pts) {
+  vertices = pts.map((v) => [...v]);
+  desenhando = false;
+  $('btnDesenhar').textContent = 'Redesenhar área'; $('btnDesenhar').classList.remove('ativo');
+  $('direcao').value = direcaoSugerida(vertices);
+  atualizar(true);
+}
 
 function carregarExemplo() {
   vertices = EXEMPLO_AREA.map((v) => [...v]);

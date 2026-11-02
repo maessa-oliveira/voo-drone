@@ -34,6 +34,8 @@ input[type=range] { width: 100%; accent-color: var(--destaque); }
 button { font: inherit; font-size: 13.5px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--destaque);
   background: var(--destaque); color: #08201d; font-weight: 600; cursor: pointer; white-space: nowrap; }
 button.sec { background: transparent; color: var(--destaque); font-weight: 500; }
+label.arquivo { font-size: 13.5px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--destaque); color: var(--destaque); cursor: pointer; display: inline-flex; align-items: center; white-space: nowrap; }
+label.arquivo:focus-within { outline: 2px solid var(--laranja); outline-offset: 1px; }
 button.mini { padding: 4px 10px; font-size: 12.5px; }
 button.ativo { background: var(--laranja); border-color: var(--laranja); color: #2a1a00; }
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--laranja); outline-offset: 1px; }

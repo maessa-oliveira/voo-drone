@@ -30,6 +30,7 @@ fotos**, o **tempo de voo**, as **baterias** e a **precisão esperada**. Exporta
 - Linhas em **zigue-zague** recortadas no polígono (funciona em áreas côncavas), com extensão nas
   pontas para cobrir as bordas e direção **automática pelo lado mais longo** (menos curvas).
 - Câmeras de mapeamento comuns (Mavic 3 Enterprise, Matrice 4E, Phantom 4 RTK, Zenmuse P1, Mini 4 Pro).
+- **Abre a área em KML ou KMZ** (Google Earth, QGIS, arquivo do cliente) ou desenhe no mapa.
 - Mapa de satélite ou de ruas; vértices arrastáveis.
 
 - `src/voo.js`: todo o cálculo, **sem dependência de navegador** (testado em Node).
