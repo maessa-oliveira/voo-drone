@@ -61,6 +61,18 @@ npm run test:e2e  # abre a página num Chromium real, desenha uma área e baixa 
 > Planejamento de referência. Antes de voar, confira as regras da ANAC/DECEA (SARPAS) e o manual
 > do equipamento.
 
+## English
+
+**Photogrammetric flight planner for drone mapping, in the browser.**
+
+- Draw the area or open a **KML/KMZ**; pick the drone, altitude and overlaps.
+- Computes GSD, footprint, serpentine flight lines (concave areas supported), photo count,
+  recommended speed (camera interval and motion-blur limits), flight time, batteries and expected accuracy.
+- Exports **KML** (DJI Pilot 2 / Google Earth), **Litchi CSV**, **QGroundControl `.plan`** and
+  **Mission Planner `.waypoints`**. Altitudes are relative to take-off: always review missions in a simulator first.
+
+👉 [Try it](https://maessa-oliveira.github.io/voo-drone/) · `npm test` · `npm run test:e2e`
+
 ## Licença
 
 MIT.
