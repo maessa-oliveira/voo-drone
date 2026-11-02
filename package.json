@@ -1,0 +1,13 @@
+{
+  "name": "voo-drone",
+  "version": "1.0.0",
+  "description": "Planejador de voo fotogramétrico para drones: GSD, linhas de voo, fotos, tempo e KML",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/voo.test.js",
+    "test:e2e": "node tests/e2e.mjs"
+  },
+  "author": "Maessa Oliveira",
+  "license": "MIT",
+  "devDependencies": { "playwright": "1.63.0" }
+}

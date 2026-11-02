@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voo Drone — planejador de voo fotogramétrico</title>
+<meta name="description" content="Planeje o voo de mapeamento com drone: GSD, linhas de voo, número de fotos, tempo, baterias e precisão esperada. Exporta KML. Roda no navegador.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Voo Drone — planejador de voo fotogramétrico">
+<meta property="og:description" content="GSD, linhas de voo, fotos, tempo e baterias para o seu aerolevantamento, direto no navegador.">
+<meta property="og:url" content="https://maessa-oliveira.github.io/voo-drone/">
+<meta property="og:image" content="https://maessa-oliveira.github.io/voo-drone/docs/og-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="627">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g fill='none' stroke='%2333a39a' stroke-width='2.4'><circle cx='8' cy='8' r='4'/><circle cx='24' cy='8' r='4'/><circle cx='8' cy='24' r='4'/><circle cx='24' cy='24' r='4'/><path d='M11 11 L21 21 M21 11 L11 21'/></g></svg>">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<div id="mapa" aria-label="Mapa da área de voo"></div>
+
+<aside id="painel">
+  <header>
+    <h1>Voo Drone</h1>
+    <p>Planejamento de aerolevantamento: desenhe a área e ajuste o voo.</p>
+  </header>
+
+  <section class="bloco">
+    <div class="acoes">
+      <button type="button" id="btnDesenhar">Desenhar área</button>
+      <button type="button" id="btnExemplo" class="sec">Exemplo</button>
+      <button type="button" id="btnLimpar" class="sec">Limpar</button>
+    </div>
+    <p id="instrucao" class="dica">Toque no mapa para marcar os vértices da área. Toque no primeiro vértice (ou em "Concluir") para fechar.</p>
+  </section>
+
+  <section class="bloco">
+    <label for="camera">Drone / câmera</label>
+    <select id="camera"></select>
+
+    <div class="faixa">
+      <label for="altura">Altura de voo <b id="vAltura">100 m</b></label>
+      <input type="range" id="altura" min="30" max="120" step="5" value="100">
+      <span class="sub">GSD <b id="vGsd">—</b> · máximo legal sem autorização: 120 m (ANAC/DECEA)</span>
+    </div>
+    <div class="dupla">
+      <div class="faixa">
+        <label for="frontal">Sobrep. frontal <b id="vFrontal">80%</b></label>
+        <input type="range" id="frontal" min="60" max="90" step="5" value="80">
+      </div>
+      <div class="faixa">
+        <label for="lateral">Sobrep. lateral <b id="vLateral">70%</b></label>
+        <input type="range" id="lateral" min="50" max="85" step="5" value="70">
+      </div>
+    </div>
+    <div class="faixa">
+      <label for="direcao">Direção das linhas <b id="vDirecao">0°</b></label>
+      <div class="com-botao">
+        <input type="range" id="direcao" min="0" max="179" step="1" value="0">
+        <button type="button" id="btnSugerir" class="sec mini" title="Alinhar ao lado mais longo da área">Auto</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="bloco" id="resultado" aria-live="polite">
+    <div class="cartoes">
+      <div class="cartao"><span>Área</span><b id="rArea">—</b></div>
+      <div class="cartao"><span>Fotos</span><b id="rFotos">—</b></div>
+      <div class="cartao"><span>Tempo de voo</span><b id="rTempo">—</b></div>
+      <div class="cartao"><span>Baterias</span><b id="rBaterias">—</b></div>
+    </div>
+    <table class="det">
+      <tr><th>GSD (pixel no chão)</th><td id="rGsd">—</td></tr>
+      <tr><th>Pegada de cada foto</th><td id="rPegada">—</td></tr>
+      <tr><th>Linhas de voo</th><td id="rLinhas">—</td></tr>
+      <tr><th>Espaçamento entre fotos</th><td id="rBase">—</td></tr>
+      <tr><th>Velocidade recomendada</th><td id="rVel">—</td></tr>
+      <tr><th>Distância percorrida</th><td id="rDist">—</td></tr>
+      <tr><th>Precisão esperada*</th><td id="rPrec">—</td></tr>
+    </table>
+    <p class="dica">* Com RTK/PPK ou pontos de controle bem distribuídos. Estimativa prática; confira com pontos de checagem.</p>
+    <div class="acoes">
+      <button type="button" id="btnKML">Baixar KML</button>
+    </div>
+    <p id="erro" class="erro" role="alert"></p>
+  </section>
+
+  <footer>Código aberto (MIT) · <a href="https://github.com/maessa-oliveira/voo-drone">GitHub</a> · Planejamento de referência: confira as regras da ANAC/DECEA e o manual do drone.</footer>
+</aside>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

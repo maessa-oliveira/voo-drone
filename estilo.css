@@ -1,0 +1,63 @@
+:root {
+  --painel: rgba(17, 27, 26, 0.94);
+  --texto: #e5efed;
+  --suave: #93aaa6;
+  --borda: #2a4440;
+  --destaque: #33a39a;
+  --laranja: #e0a64a;
+  --erro: #ff8a7a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #0f1716; color: var(--texto);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#mapa { position: fixed; inset: 0; background: #0f1716; }
+#painel { position: fixed; z-index: 1000; top: 12px; left: 12px; bottom: 12px; width: 360px; overflow-y: auto;
+  background: var(--painel); border: 1px solid var(--borda); border-radius: 14px; padding: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35); display: flex; flex-direction: column; gap: 12px;
+  backdrop-filter: blur(6px); }
+h1 { margin: 0; font-size: 21px; letter-spacing: -.01em; }
+h1::before { content: ""; display: inline-block; width: 20px; height: 20px; margin-right: 8px; vertical-align: -3px;
+  background: no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='none' stroke='%2333a39a' stroke-width='2.6'%3E%3Ccircle cx='8' cy='8' r='4'/%3E%3Ccircle cx='24' cy='8' r='4'/%3E%3Ccircle cx='8' cy='24' r='4'/%3E%3Ccircle cx='24' cy='24' r='4'/%3E%3Cpath d='M11 11 L21 21 M21 11 L11 21'/%3E%3C/g%3E%3C/svg%3E"); }
+header p { margin: 4px 0 0; color: var(--suave); font-size: 13px; }
+.bloco { border-top: 1px solid var(--borda); padding-top: 12px; display: grid; gap: 10px; }
+label { font-size: 12.5px; color: var(--suave); display: flex; justify-content: space-between; gap: 8px; }
+label b { color: var(--texto); font-variant-numeric: tabular-nums; }
+select { width: 100%; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--borda);
+  background: #16231f; color: var(--texto); }
+input[type=range] { width: 100%; accent-color: var(--destaque); }
+.faixa { display: grid; gap: 4px; }
+.dupla { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.com-botao { display: flex; gap: 8px; align-items: center; }
+.sub { font-size: 12px; color: var(--suave); }
+.sub b { color: var(--laranja); }
+button { font: inherit; font-size: 13.5px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--destaque);
+  background: var(--destaque); color: #08201d; font-weight: 600; cursor: pointer; white-space: nowrap; }
+button.sec { background: transparent; color: var(--destaque); font-weight: 500; }
+button.mini { padding: 4px 10px; font-size: 12.5px; }
+button.ativo { background: var(--laranja); border-color: var(--laranja); color: #2a1a00; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--laranja); outline-offset: 1px; }
+.acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.dica { margin: 0; font-size: 12.5px; color: var(--suave); }
+.erro { color: var(--erro); margin: 0; font-size: 13px; }
+.erro:empty { display: none; }
+.cartoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cartao { border: 1px solid var(--borda); border-radius: 10px; padding: 8px 10px; display: grid; }
+.cartao span { font-size: 11.5px; color: var(--suave); }
+.cartao b { font-size: 20px; font-variant-numeric: tabular-nums; }
+table.det { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.det th { text-align: left; font-weight: 400; color: var(--suave); padding: 4px 0; }
+table.det td { text-align: right; padding: 4px 0; font-variant-numeric: tabular-nums; }
+table.det tr + tr { border-top: 1px solid rgba(255, 255, 255, .05); }
+footer { margin-top: auto; font-size: 11.5px; color: var(--suave); }
+a { color: var(--destaque); }
+.vertice { width: 12px; height: 12px; border-radius: 50%; background: var(--laranja); border: 2px solid #fff; }
+.inicio-voo { font: 700 11px system-ui, sans-serif; color: #08201d; background: var(--destaque); border-radius: 6px;
+  padding: 2px 6px; white-space: nowrap; border: 1px solid #fff; }
+.leaflet-container { font: 12px system-ui, sans-serif; }
+.leaflet-control-layers, .leaflet-bar a { background: var(--painel); color: var(--texto); }
+.leaflet-control-layers-expanded { color: var(--texto); }
+
+@media (max-width: 720px) {
+  #painel { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 55vh; padding: 12px; }
+}
