@@ -1,5 +1,5 @@
 // Interface do planejador. Os cálculos estão em ./voo.js.
-import { DRONES, gsd, planejar, planejarCorredor, direcaoSugerida, lerGeometriasKML, area as areaPlano, projecao, comprimento, kmlDeKMZ, missoesDJIFly, lerMissaoDJIFly, EXEMPLO_AREA } from './voo.js';
+import { DRONES, gsd, planejar, planejarCorredor, direcaoSugerida, lerGeometriasKML, area as areaPlano, projecao, comprimento, kmlDeKMZ, missoesDJIFly, lerMissaoDJIFly, lerExifJPEG, conferirFotos, fotosParaCSV, EXEMPLO_AREA } from './voo.js';
 
 const L = window.L;
 const $ = (id) => document.getElementById(id);
@@ -20,6 +20,9 @@ L.control.layers({ 'Satélite': satelite, 'Mapa': ruas }, null, { position: 'top
 
 const camArea = L.layerGroup().addTo(mapa);
 const camVoo = L.layerGroup().addTo(mapa);
+const camFotos = L.layerGroup().addTo(mapa);
+let fotosLidas = []; // [{nome, lat, lon, data}] das fotos escolhidas em "Conferir fotos"
+let conferencia = null;
 let vertices = [];
 let desenhando = false;
 let plano = null;
@@ -146,6 +149,7 @@ function atualizar(enquadrar = false) {
   $('rPrec').textContent = `H ${nf(p.precisao.horizontalCm[0], 1)}–${nf(p.precisao.horizontalCm[1], 1)} cm · V ${nf(p.precisao.verticalCm[0], 1)}–${nf(p.precisao.verticalCm[1], 1)} cm`;
   window.__voo = p;
   window.__missoes = missoes;
+  mostrarConferencia();
   if (enquadrar) mapa.fitBounds(L.latLngBounds(eixo ? plano.areaGeo : vertices), margem());
 }
 const margem = () => (innerWidth > 720
@@ -293,6 +297,60 @@ function carregarExemplo() {
   $('direcao').value = direcaoSugerida(vertices);
   atualizar(true);
 }
+
+// ---------- conferir fotos ----------
+function mostrarConferencia() {
+  camFotos.clearLayers();
+  conferencia = null;
+  $('fotosResultado').hidden = !fotosLidas.length;
+  if (!fotosLidas.length || !plano) { window.__conferencia = null; return; }
+  const c = conferencia = conferirFotos(plano, fotosLidas, { missoes: $('modo').value === 'ponto' ? missoes : undefined });
+  for (const ponto of c.pontos) {
+    L.circleMarker([ponto.lat, ponto.lon], {
+      radius: ponto.foto ? 3 : 5, weight: ponto.foto ? 0 : 2, color: '#ff8a7a',
+      fillColor: ponto.foto ? '#5cd68a' : '#ff5a4a', fillOpacity: 0.95,
+    }).bindTooltip(ponto.foto
+      ? `${ponto.parte ? `Parte ${ponto.parte}, ponto ${ponto.ponto}: ` : ''}${ponto.foto}`
+      : `${ponto.parte ? `Parte ${ponto.parte}, ponto ${ponto.ponto}: ` : ''}sem foto`).addTo(camFotos);
+  }
+  for (const f of c.fotos.filter((x) => x.ponto == null)) {
+    L.circleMarker([f.lat, f.lon], { radius: 4, weight: 1, color: '#fff', fillColor: '#e0a64a', fillOpacity: 0.9 })
+      .bindTooltip(`${f.nome}: fora do plano`).addTo(camFotos);
+  }
+  $('cOk').textContent = `${nf(c.fotografados)} de ${nf(c.total)}`;
+  $('cFalta').textContent = nf(c.faltando);
+  const partes = Object.entries(c.partesComFalta).map(([pt, n]) => `parte ${pt} (${n})`);
+  $('cDetalhe').textContent = (c.faltando
+    ? `Faltam fotos em ${nf(c.faltando)} pontos${partes.length ? `: ${partes.join(', ')}. Refaça essas partes` : ''}.`
+    : 'Todos os pontos têm foto.')
+    + ` ${nf(fotosLidas.length)} fotos lidas${c.foraDoPlano ? `, ${nf(c.foraDoPlano)} fora do plano (em laranja)` : ''}. Tolerância: ${nf(c.tolerancia, 1)} m.`;
+  window.__conferencia = c;
+}
+
+$('fotos').addEventListener('change', async () => {
+  const lista = [...$('fotos').files];
+  $('fotos').value = '';
+  if (!lista.length) return;
+  $('erro').textContent = '';
+  $('fotosInfo').textContent = `Lendo ${lista.length} fotos…`;
+  const lidas = [];
+  let semGps = 0;
+  for (const f of lista) {
+    try {
+      const e = lerExifJPEG(new Uint8Array(await f.slice(0, 256 * 1024).arrayBuffer()));
+      if (e) lidas.push({ nome: f.name, lat: e.lat, lon: e.lon, data: e.data }); else semGps++;
+    } catch { semGps++; }
+  }
+  fotosLidas = lidas;
+  $('fotosInfo').textContent = semGps
+    ? `${semGps} de ${lista.length} fotos sem localização (GPS) foram deixadas de fora. No iPhone, escolha pelo app Arquivos.`
+    : `${lista.length} fotos lidas.`;
+  if (!lidas.length) { $('erro').textContent = 'Nenhuma foto com localização (GPS).'; mostrarConferencia(); return; }
+  mostrarConferencia();
+  mapa.fitBounds(L.latLngBounds(lidas.map((f) => [f.lat, f.lon])), margem());
+});
+$('btnCSV').addEventListener('click', () => { if (conferencia) baixar('fotos-na-ordem-do-voo.csv', fotosParaCSV(conferencia), 'text/csv;charset=utf-8'); });
+$('btnLimparFotos').addEventListener('click', () => { fotosLidas = []; mostrarConferencia(); $('fotosInfo').textContent = 'Conferência retirada.'; });
 
 rotulos();
 carregarExemplo();

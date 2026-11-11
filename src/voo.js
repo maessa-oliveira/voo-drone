@@ -704,3 +704,127 @@ ${marcasTemplate}
 `;
   return { template, waylines };
 }
+
+// ---------- conferência das fotos depois do voo ----------
+
+/**
+ * Lê do cabeçalho EXIF de um JPEG a posição GPS e a hora da foto.
+ * Basta passar o começo do arquivo (os primeiros ~128 kB).
+ * @returns {{lat: number, lon: number, alt: number|null, data: string|null}|null}  null se não tiver GPS
+ */
+export function lerExifJPEG(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (u8[0] !== 0xff || u8[1] !== 0xd8) return null;
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let p = 2;
+  while (p + 4 <= u8.length) {
+    if (u8[p] !== 0xff) return null;
+    const marca = u8[p + 1], tam = dv.getUint16(p + 2);
+    if (marca === 0xe1 && dv.getUint32(p + 4) === 0x45786966) return lerTIFF(dv, p + 10); // "Exif"
+    if (marca === 0xda) return null; // início da imagem: não há EXIF
+    p += 2 + tam;
+  }
+  return null;
+}
+
+function lerTIFF(dv, t0) {
+  const le = dv.getUint16(t0) === 0x4949;
+  const u16 = (o) => dv.getUint16(t0 + o, le), u32 = (o) => dv.getUint32(t0 + o, le);
+  const fim = dv.byteLength - t0;
+  const ifd = (off) => {
+    const tags = {};
+    if (off + 2 > fim) return tags;
+    const n = u16(off);
+    for (let i = 0; i < n; i++) {
+      const e = off + 2 + i * 12;
+      if (e + 12 > fim) break;
+      tags[u16(e)] = { tipo: u16(e + 2), n: u32(e + 4), valOff: e + 8 };
+    }
+    return tags;
+  };
+  const ptr = (t) => (t.tipo === 3 ? u16(t.valOff) : u32(t.valOff));
+  const dados = (t, tamItem) => (t.n * tamItem > 4 ? u32(t.valOff) : t.valOff);
+  const racionais = (t) => {
+    const o = dados(t, 8), r = [];
+    for (let i = 0; i < t.n; i++) { const d = u32(o + 8 * i + 4); r.push(d ? u32(o + 8 * i) / d : 0); }
+    return r;
+  };
+  const texto = (t) => {
+    const o = dados(t, 1);
+    let s = '';
+    for (let i = 0; i < t.n && o + i < fim; i++) { const c = dv.getUint8(t0 + o + i); if (!c) break; s += String.fromCharCode(c); }
+    return s;
+  };
+  const ifd0 = ifd(u32(4));
+  if (!ifd0[0x8825]) return null;
+  const gps = ifd(ptr(ifd0[0x8825]));
+  if (!gps[2] || !gps[4]) return null;
+  const graus = (v) => v[0] + v[1] / 60 + v[2] / 3600;
+  let lat = graus(racionais(gps[2])), lon = graus(racionais(gps[4]));
+  if (gps[1] && texto(gps[1]).toUpperCase() === 'S') lat = -lat;
+  if (gps[3] && texto(gps[3]).toUpperCase() === 'W') lon = -lon;
+  let alt = gps[6] ? racionais(gps[6])[0] : null;
+  if (alt != null && gps[5] && dv.getUint8(t0 + gps[5].valOff) === 1) alt = -alt;
+  let data = null;
+  if (ifd0[0x8769]) {
+    const ex = ifd(ptr(ifd0[0x8769]));
+    if (ex[0x9003]) data = texto(ex[0x9003]);
+  }
+  if (!data && ifd0[0x0132]) data = texto(ifd0[0x0132]);
+  if (!(Math.abs(lat) > 0 || Math.abs(lon) > 0)) return null;
+  return { lat, lon, alt, data };
+}
+
+/**
+ * Confere as fotos tiradas contra os pontos de foto planejados.
+ * @param {object} plano   resultado de `planejar` ou `planejarCorredor`
+ * @param {Array<{nome: string, lat: number, lon: number, data?: string}>} fotos  fotos com GPS
+ * @param {object} [o]
+ * @param {Array<{pontos: number}>} [o.missoes]  partes geradas no modo 'ponto', para dizer a parte de cada ponto
+ * @param {number} [o.tolerancia]  distância máxima (m) para a foto valer pelo ponto; padrão: metade da base, mínimo 6 m
+ */
+export function conferirFotos(plano, fotos, o = {}) {
+  const tol = o.tolerancia ?? Math.max(6, plano.base / 2);
+  const est = plano.estacoesGeo;
+  // parte e número do ponto dentro da parte (só no modo parar em cada foto, em que ponto = foto)
+  const parteDe = [];
+  if (o.missoes && o.missoes.reduce((s, m) => s + m.pontos, 0) === est.length) {
+    o.missoes.forEach((m, i) => { for (let k = 0; k < m.pontos; k++) parteDe.push({ parte: i + 1, ponto: k + 1 }); });
+  }
+  const proj = projecao(est[0]?.lat ?? 0, est[0]?.lon ?? 0);
+  const exy = est.map((e) => proj.para([e.lat, e.lon]));
+  const fxy = fotos.map((f) => proj.para([f.lat, f.lon]));
+  const pontos = est.map((e, i) => {
+    let melhor = -1, dmin = Infinity;
+    fxy.forEach((q, j) => { const d = Math.hypot(q[0] - exy[i][0], q[1] - exy[i][1]); if (d < dmin) { dmin = d; melhor = j; } });
+    return { ...e, indice: i, ...(parteDe[i] || {}), foto: dmin <= tol ? fotos[melhor].nome : null, distancia: dmin };
+  });
+  const lista = fotos.map((f, j) => {
+    let melhor = -1, dmin = Infinity;
+    exy.forEach((q, i) => { const d = Math.hypot(q[0] - fxy[j][0], q[1] - fxy[j][1]); if (d < dmin) { dmin = d; melhor = i; } });
+    const dentro = dmin <= tol;
+    return { ...f, ponto: dentro ? melhor + 1 : null, distancia: dmin, ...(dentro ? parteDe[melhor] || {} : {}) };
+  });
+  // ordem do voo: pela hora da foto (EXIF "AAAA:MM:DD HH:MM:SS"), depois pelo nome
+  lista.sort((a, b) => (a.data || '').localeCompare(b.data || '') || a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true }));
+  lista.forEach((f, k) => { f.ordem = k + 1; });
+  const faltando = pontos.filter((p) => !p.foto);
+  const porParte = {};
+  for (const p of faltando) if (p.parte) porParte[p.parte] = (porParte[p.parte] || 0) + 1;
+  return {
+    tolerancia: tol, total: pontos.length, fotografados: pontos.length - faltando.length,
+    faltando: faltando.length, partesComFalta: porParte,
+    foraDoPlano: lista.filter((f) => f.ponto == null).length,
+    pontos, fotos: lista,
+  };
+}
+
+/** Lista das fotos na ordem do voo, em CSV (abre no Excel). */
+export function fotosParaCSV(conf) {
+  const linhas = ['ordem;foto;data_hora;latitude;longitude;parte;ponto;distancia_ao_ponto_m'];
+  for (const f of conf.fotos) {
+    linhas.push([f.ordem, f.nome, f.data || '', f.lat.toFixed(7), f.lon.toFixed(7), f.parte ?? '', f.ponto == null ? 'fora do plano' : (f.ponto ?? ''),
+      f.distancia.toFixed(1).replace('.', ',')].join(';'));
+  }
+  return '﻿' + linhas.join('\r\n') + '\r\n';
+}

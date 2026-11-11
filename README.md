@@ -35,6 +35,9 @@ app DJI Fly** (Mini 4 Pro e Air 3), já dividida em partes de até 200 pontos e 
 - Dois jeitos de fotografar: **parar em cada foto** (um ponto por foto, o mais garantido no DJI Fly) ou
   **foto por distância** (pontos só nas pontas das linhas; experimental, nem toda versão do app dispara).
 - **KMZ de teste** com 5 fotos, para conferir no campo antes do voo completo.
+- **Conferir fotos** depois do voo: escolha as fotos baixadas e, pelo GPS de cada uma (EXIF), o mapa mostra
+  os pontos fotografados (verde), os que faltam (vermelho) e a parte que precisa ser refeita. Baixa a lista
+  das fotos **na ordem do voo** (CSV). As fotos são lidas só no aparelho, nada é enviado.
 
 ## Levar a missão para o DJI Fly
 

@@ -105,6 +105,24 @@ try {
   const way = new TextDecoder().decode(await readFile(await dm.path()));
   if (!way.includes('<wpml:droneEnumValue>77</wpml:droneEnumValue>')) falha('código do drone não copiado');
   console.log('partes', nPartes);
+  // conferir fotos: fotos com GPS em todos os pontos menos 2
+  const { jpegComGPS } = await import('./jpeg.mjs');
+  const est = await page.evaluate(() => window.__voo.estacoesGeo.map((e) => [e.lat, e.lon]));
+  const arquivos = est.filter((_, i) => i !== 3 && i !== 4).map(([lat, lon], i) => ({
+    name: `DJI_${String(i + 1).padStart(4, '0')}.JPG`, mimeType: 'image/jpeg',
+    buffer: Buffer.from(jpegComGPS({ lat, lon, data: `2026:11:11 10:${String(Math.floor(i / 60) % 60).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}` })),
+  }));
+  arquivos.push({ name: 'sem-gps.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff, 0xda, 0, 2]) });
+  await page.setInputFiles('#fotos', arquivos);
+  await page.waitForFunction(() => window.__conferencia && !document.querySelector('#fotosResultado').hidden);
+  const conf = await page.evaluate(() => ({ falta: __conferencia.faltando, total: __conferencia.total, ok: document.querySelector('#cOk').textContent }));
+  if (conf.falta !== 2) falha('conferência ' + JSON.stringify(conf));
+  if (!/sem localização/.test(await page.locator('#fotosInfo').textContent())) falha('aviso de foto sem GPS');
+  const [dc] = await Promise.all([page.waitForEvent('download'), page.click('#btnCSV')]);
+  const csv = (await readFile(await dc.path(), 'utf8')).trim().split(/\r?\n/);
+  if (csv.length !== arquivos.length) falha('CSV com ' + csv.length + ' linhas');
+  await page.screenshot({ path: join(saida, 'captura-fotos.png') });
+  console.log('conferir fotos ok', JSON.stringify(conf));
   console.log('missões ok');
 } finally {
   await browser.close();

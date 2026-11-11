@@ -125,6 +125,22 @@
       </details>
       <p class="dica">Alturas relativas à decolagem: o DJI Fly não segue o relevo. Decole do ponto mais alto ou suba a altura em terreno inclinado. Respeite as regras da ANAC/DECEA (SARPAS).</p>
     </div>
+    <div class="exportar" id="conferir">
+      <span class="rot">Depois do voo</span>
+      <label class="arquivo" for="fotos">Conferir fotos<input type="file" id="fotos" accept="image/jpeg,.jpg,.jpeg" multiple hidden></label>
+      <p class="dica" id="fotosInfo">Escolha as fotos baixadas do drone: pelo GPS de cada uma eu marco no mapa os pontos fotografados (verde) e os que faltam (vermelho). No iPhone, escolha pelo app Arquivos: a Fototeca pode tirar a localização das fotos.</p>
+      <div id="fotosResultado" hidden>
+        <div class="cartoes">
+          <div class="cartao"><span>Pontos fotografados</span><b id="cOk">—</b></div>
+          <div class="cartao"><span>Faltando</span><b id="cFalta">—</b></div>
+        </div>
+        <p class="dica" id="cDetalhe"></p>
+        <div class="acoes">
+          <button type="button" id="btnCSV" class="sec">Lista das fotos na ordem do voo (CSV)</button>
+          <button type="button" id="btnLimparFotos" class="sec">Tirar conferência</button>
+        </div>
+      </div>
+    </div>
     <p id="erro" class="erro" role="alert"></p>
   </section>
 

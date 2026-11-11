@@ -213,3 +213,41 @@ test('faixa ao longo do eixo: linhas paralelas cobrindo a largura e missão DJI 
   assert.equal(ms.reduce((s, m) => s + m.pontos, 0), pl.fotos);
   assert.throws(() => planejarCorredor({ eixo: [eixo[0]], largura: 100, camera: mini, altura: 80, frontal: 0.8, lateral: 0.7 }), /2 pontos/);
 });
+
+test('lê GPS e hora do EXIF da foto (JPEG little e big endian)', async () => {
+  const { lerExifJPEG } = await import('../src/voo.js');
+  const { jpegComGPS } = await import('./jpeg.mjs');
+  for (const bigEndian of [false, true]) {
+    const e = lerExifJPEG(jpegComGPS({ lat: -12.2418, lon: -38.9695, alt: 81.5, data: '2026:11:11 10:05:07', bigEndian }));
+    perto(e.lat, -12.2418, 1e-7); perto(e.lon, -38.9695, 1e-7); perto(e.alt, 81.5, 1e-9);
+    assert.equal(e.data, '2026:11:11 10:05:07');
+  }
+  assert.equal(lerExifJPEG(new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0, 2])), null);
+  assert.equal(lerExifJPEG(new Uint8Array([1, 2, 3])), null);
+});
+
+test('conferir fotos: acha os pontos que faltam, a parte e a ordem do voo', async () => {
+  const { conferirFotos, fotosParaCSV } = await import('../src/voo.js');
+  const pl = planejar({ area: retangulo(300, 200), camera: mini, altura: 60, frontal: 0.8, lateral: 0.7, direcao: 0 });
+  const ms = missoesDJIFly(pl, { altura: 60, drone: mini, limitePontos: 40 });
+  const est = pl.estacoesGeo;
+  // fotos em todos os pontos menos 3, com 2 m de erro de GPS, fora de ordem, e uma foto fora do plano
+  const pular = new Set([5, 6, 50]);
+  const fotos = est.map((e, i) => ({ nome: `DJI_${String(i + 1).padStart(4, '0')}.JPG`, lat: e.lat + 2 / 111320, lon: e.lon, data: `2026:11:11 10:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}` }))
+    .filter((_, i) => !pular.has(i)).reverse();
+  fotos.push({ nome: 'DJI_9999.JPG', lat: est[0].lat + 0.01, lon: est[0].lon, data: '2026:11:11 09:00:00' });
+  const c = conferirFotos(pl, fotos, { missoes: ms });
+  assert.equal(c.total, est.length);
+  assert.equal(c.faltando, 3);
+  assert.deepEqual(c.pontos.filter((p) => !p.foto).map((p) => p.indice), [5, 6, 50]);
+  assert.equal(c.foraDoPlano, 1);
+  // partes de 40 pontos: 5 e 6 na parte 1, 50 na parte 2
+  assert.deepEqual(c.partesComFalta, { 1: 2, 2: 1 });
+  assert.equal(c.fotos[0].nome, 'DJI_9999.JPG'); // a mais cedo
+  assert.equal(c.fotos[1].nome, 'DJI_0001.JPG');
+  assert.equal(c.fotos[1].parte, 1);
+  assert.equal(c.fotos[1].ponto, 1);
+  const csv = fotosParaCSV(c).trim().split('\r\n');
+  assert.equal(csv.length, fotos.length + 1);
+  assert.match(csv[1], /^﻿?1;DJI_9999\.JPG;.*fora do plano/);
+});
