@@ -65,3 +65,13 @@ a { color: var(--destaque); }
 }
 .exportar { display: grid; gap: 8px; border-top: 1px solid var(--borda); padding-top: 10px; }
 .exportar .rot { font-size: 12px; color: var(--suave); text-transform: uppercase; letter-spacing: .08em; }
+label.arquivo.principal { background: var(--destaque); color: #08201d; font-weight: 600; }
+.partes { display: grid; gap: 6px; }
+.partes button { white-space: normal; text-align: left; }
+.aviso { margin: 0; font-size: 12.5px; color: #2a1a00; background: var(--laranja); border-radius: 8px; padding: 8px 10px; }
+.passos { font-size: 12.5px; color: var(--suave); }
+.passos summary { cursor: pointer; color: var(--texto); }
+.passos ol { padding-left: 18px; margin: 8px 0 0; display: grid; gap: 6px; }
+.passos ul { padding-left: 16px; margin: 4px 0 0; }
+.passos b { color: var(--texto); }
+code { font-size: 12px; background: rgba(255, 255, 255, .06); padding: 0 4px; border-radius: 4px; word-break: break-all; }

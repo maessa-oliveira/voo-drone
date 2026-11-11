@@ -9,14 +9,21 @@
 const R = 6371008.8; // raio médio da Terra (m)
 const RAD = Math.PI / 180;
 
-/** Câmeras comuns em mapeamento. Valores de catálogo, conferir no manual do equipamento. */
-export const CAMERAS = {
-  m3e: { nome: 'DJI Mavic 3 Enterprise (4/3")', sensorL: 17.3, sensorA: 13.0, focal: 12.29, pxL: 5280, pxA: 3956, intervalo: 0.7, bateriaMin: 30 },
-  m4e: { nome: 'DJI Matrice 4E (grande-angular)', sensorL: 17.3, sensorA: 13.0, focal: 12.29, pxL: 5280, pxA: 3956, intervalo: 0.5, bateriaMin: 32 },
-  p4rtk: { nome: 'DJI Phantom 4 RTK (1")', sensorL: 13.2, sensorA: 8.8, focal: 8.8, pxL: 5472, pxA: 3648, intervalo: 2.0, bateriaMin: 20 },
-  p1: { nome: 'DJI Zenmuse P1 35 mm (full frame)', sensorL: 35.9, sensorA: 24.0, focal: 35, pxL: 8192, pxA: 5460, intervalo: 0.7, bateriaMin: 30 },
-  mini4: { nome: 'DJI Mini 4 Pro (1/1,3")', sensorL: 9.6, sensorA: 7.2, focal: 6.72, pxL: 4032, pxA: 3024, intervalo: 2.0, bateriaMin: 22 },
+/**
+ * Drones com voo por waypoints no app DJI Fly. Valores de catálogo (foto de 12 MP, 4:3),
+ * conferir no manual. `droneEnum` é o código que o DJI Fly grava na missão: 68 é o do Mini 4 Pro
+ * (lido de missões geradas pelo próprio app). O do Air 3 não é publicado pela DJI: o planejador
+ * copia o código da missão-modelo que você salva no DJI Fly (ver `lerMissaoDJIFly`).
+ */
+export const DRONES = {
+  mini4: { nome: 'DJI Mini 4 Pro', sensorL: 9.6, sensorA: 7.2, focal: 6.72, pxL: 4032, pxA: 3024, intervalo: 2.0, bateriaMin: 22, droneEnum: 68, droneSub: 0, enumConfirmado: true },
+  air3: { nome: 'DJI Air 3 (câmera grande-angular)', sensorL: 9.6, sensorA: 7.2, focal: 6.72, pxL: 4032, pxA: 3024, intervalo: 2.0, bateriaMin: 30, droneEnum: 68, droneSub: 0, enumConfirmado: false },
 };
+/** Nome antigo, mantido por compatibilidade. */
+export const CAMERAS = DRONES;
+
+/** Limite de pontos por missão no DJI Fly. */
+export const LIMITE_PONTOS_DJI_FLY = 200;
 
 /** Projeção local (lat, lon) ↔ (x, y) em metros em torno de uma origem. */
 export function projecao(lat0, lon0) {
@@ -128,17 +135,19 @@ export function planejar(p) {
   // ordem em zigue-zague
   linhas.forEach((l, i) => { if (i % 2) [l.y1, l.y2] = [l.y2, l.y1]; });
 
-  let dist = 0, fotos = 0;
+  let dist = 0;
   const caminho = [];
+  const estacoes = []; // pontos de foto, na ordem de voo, espaçados de no máximo `base`
   linhas.forEach((l, i) => {
     const comp = Math.abs(l.y2 - l.y1);
     dist += comp;
-    l.fotos = Math.floor(comp / base + 1e-6) + 1;
-    fotos += l.fotos;
+    const n = Math.max(2, Math.ceil(comp / base - 1e-6) + 1);
+    for (let k = 0; k < n; k++) estacoes.push({ q: [l.cx, l.y1 + ((l.y2 - l.y1) * k) / (n - 1)], linha: i });
     const a = [l.cx, l.y1], b = [l.cx, l.y2];
     if (i) { const ant = caminho[caminho.length - 1]; dist += Math.hypot(a[0] - ant[0], a[1] - ant[1]); }
     caminho.push(a, b);
   });
+  const fotos = estacoes.length;
   const desgirar = (q) => proj.de(girar(q, -ang));
   const tempoCurva = p.tempoCurva ?? 8;
   const tempoS = dist / vel + Math.max(0, linhas.length - 1) * tempoCurva;
@@ -155,6 +164,7 @@ export function planejar(p) {
     precisao: { horizontalCm: [1 * foto.gsdCm, 2 * foto.gsdCm], verticalCm: [1.5 * foto.gsdCm, 3 * foto.gsdCm] },
     linhasGeo: linhas.map((l) => [desgirar([l.cx, l.y1]), desgirar([l.cx, l.y2])]),
     caminhoGeo: caminho.map(desgirar),
+    estacoesGeo: estacoes.map((e) => { const [lat, lon] = desgirar(e.q); return { lat, lon, linha: e.linha }; }),
   };
 }
 
@@ -220,14 +230,13 @@ export function lerKML(texto) {
   throw new Error('não encontrei um polígono com 3 ou mais vértices no arquivo');
 }
 
-/**
- * Extrai o primeiro .kml de um KMZ (arquivo ZIP). `inflarRaw(bytes)` descompacta "deflate" puro
- * (no navegador, DecompressionStream; no Node, zlib.inflateRawSync).
- */
-export async function kmlDeKMZ(buffer, inflarRaw) {
-  const dv = new DataView(buffer instanceof ArrayBuffer ? buffer : buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
-  const u8 = new Uint8Array(dv.buffer);
-  // diretório central: procura o registro de fim (EOCD) de trás para frente
+
+// ---------- ZIP (KMZ) ----------
+
+/** Lista os arquivos de um ZIP/KMZ: [{nome, metodo, comp, local}]. */
+export function listarZip(buffer) {
+  const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
   let eocd = -1;
   for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) {
     if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
@@ -245,90 +254,290 @@ export async function kmlDeKMZ(buffer, inflarRaw) {
     entradas.push({ nome: dec.decode(u8.subarray(p + 46, p + 46 + nLen)), metodo, comp, local });
     p += 46 + nLen + xLen + cLen;
   }
-  const e = entradas.find((x) => /\.kml$/i.test(x.nome));
-  if (!e) throw new Error('o KMZ não tem arquivo .kml dentro');
+  return { u8, dv, entradas };
+}
+
+/** Texto de um arquivo dentro do ZIP. `inflarRaw` descompacta "deflate" puro. */
+async function textoDoZip({ u8, dv }, e, inflarRaw) {
   const ini = e.local + 30 + dv.getUint16(e.local + 26, true) + dv.getUint16(e.local + 28, true);
   const dados = u8.subarray(ini, ini + e.comp);
+  const dec = new TextDecoder();
   if (e.metodo === 0) return dec.decode(dados);
   if (e.metodo === 8) return dec.decode(await inflarRaw(dados));
   throw new Error('compressão do KMZ não suportada');
 }
 
-// ---------- missões para o drone ----------
-// Não existe um arquivo aceito por todos os drones. Cobrimos as três famílias mais comuns:
-//  - Litchi (CSV): drones DJI de consumo/prosumer pelo app Litchi;
-//  - QGroundControl (.plan): drones PX4/ArduPilot (MAVLink);
-//  - Mission Planner (.waypoints, "QGC WPL 110"): ArduPilot.
-// Para DJI Pilot 2 (Mavic 3E, Matrice), importe o KML da área no modo Mapeamento.
-// Altitudes relativas ao ponto de decolagem; a foto é disparada por distância (a cada "base" metros).
-
-const f7 = (v) => v.toFixed(7);
-
-/** Waypoints da rota: início e fim de cada linha, na ordem de voo. */
-export function waypoints(plano) {
-  return plano.caminhoGeo.map(([lat, lon]) => ({ lat, lon }));
+/**
+ * Extrai o primeiro .kml de um KMZ (arquivo ZIP). `inflarRaw(bytes)` descompacta "deflate" puro
+ * (no navegador, DecompressionStream; no Node, zlib.inflateRawSync).
+ */
+export async function kmlDeKMZ(buffer, inflarRaw) {
+  const z = listarZip(buffer);
+  const e = z.entradas.find((x) => /\.kml$/i.test(x.nome));
+  if (!e) throw new Error('o KMZ não tem arquivo .kml dentro');
+  return textoDoZip(z, e, inflarRaw);
 }
 
-/** Missão Litchi (CSV). Câmera a −90°, foto por distância, velocidade do plano. */
-export function paraLitchiCSV(plano, { altura }) {
-  const cab = 'latitude,longitude,altitude(m),heading(deg),curvesize(m),rotationdir,gimbalmode,gimbalpitchangle,'
-    + Array.from({ length: 15 }, (_, i) => `actiontype${i + 1},actionparam${i + 1}`).join(',')
-    + ',altitudemode,speed(m/s),poi_latitude,poi_longitude,poi_altitude(m),poi_altitudemode,photo_timeinterval,photo_distinterval';
-  const wps = waypoints(plano);
-  const linhas = wps.map((w, i) => {
-    const prox = wps[i + 1] ?? wps[i - 1];
-    const rumo = Math.round(((Math.atan2((prox.lon - w.lon) * Math.cos(w.lat * Math.PI / 180), prox.lat - w.lat) * 180 / Math.PI) + 360) % 360);
-    const acoes = Array.from({ length: 15 }, () => '-1,0').join(',');
-    return [f7(w.lat), f7(w.lon), altura.toFixed(1), i + 1 < wps.length ? rumo : (rumo + 180) % 360, 0, 0, 2, -90, acoes,
-      0, plano.velocidade.toFixed(1), 0, 0, 0, 0, -1, plano.base.toFixed(1)].join(',');
-  });
-  return [cab, ...linhas].join('\n') + '\n';
+function crc32(u8) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < u8.length; i++) {
+    let c = (crc ^ u8[i]) & 0xff;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    crc = (crc >>> 8) ^ c;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
-/** Missão QGroundControl (.plan, JSON). */
-export function paraQGCPlan(plano, { altura }) {
-  const wps = waypoints(plano);
-  let seq = 1;
-  const item = (command, params, extra = {}) => ({
-    autoContinue: true, command, doJumpId: seq++, frame: 3, params, type: 'SimpleItem', ...extra,
-  });
-  const itens = [
-    item(22, [0, 0, 0, null, wps[0].lat, wps[0].lon, altura]), // decolagem
-    item(178, [1, plano.velocidade, -1, 0, 0, 0, 0], { frame: 2 }), // velocidade
-    item(205, [-90, 0, 0, 0, 0, 0, 2], { frame: 2 }), // gimbal para baixo
-  ];
-  wps.forEach((w, i) => {
-    itens.push(item(16, [0, 0, 0, null, w.lat, w.lon, altura]));
-    if (i % 2 === 0) itens.push(item(206, [plano.base, 0, 1, 0, 0, 0, 0], { frame: 2 })); // liga fotos na linha
-    else itens.push(item(206, [0, 0, 0, 0, 0, 0, 0], { frame: 2 })); // desliga na curva
-  });
-  itens.push(item(20, [0, 0, 0, 0, 0, 0, 0], { frame: 2 })); // retorna para casa
-  return JSON.stringify({
-    fileType: 'Plan', groundStation: 'QGroundControl', version: 1,
-    geoFence: { circles: [], polygons: [], version: 2 },
-    rallyPoints: { points: [], version: 2 },
-    mission: {
-      cruiseSpeed: plano.velocidade, hoverSpeed: 5, firmwareType: 12, vehicleType: 2, version: 2,
-      globalPlanAltitudeMode: 1,
-      plannedHomePosition: [wps[0].lat, wps[0].lon, 0],
-      items: itens,
-    },
-  }, null, 2);
+/** Monta um ZIP sem compressão (store), como os KMZ do DJI Fly. arquivos: [[nome, texto]]. */
+export function montarZip(arquivos) {
+  const enc = new TextEncoder();
+  const partes = [], central = [];
+  let off = 0;
+  for (const [nome, texto] of arquivos) {
+    const n = enc.encode(nome), d = enc.encode(texto), crc = crc32(d);
+    const loc = new Uint8Array(30 + n.length), lv = new DataView(loc.buffer);
+    lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint16(6, 0x0800, true);
+    lv.setUint32(14, crc, true); lv.setUint32(18, d.length, true); lv.setUint32(22, d.length, true); lv.setUint16(26, n.length, true);
+    loc.set(n, 30);
+    const cen = new Uint8Array(46 + n.length), cv = new DataView(cen.buffer);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true); cv.setUint16(8, 0x0800, true);
+    cv.setUint32(16, crc, true); cv.setUint32(20, d.length, true); cv.setUint32(24, d.length, true); cv.setUint16(28, n.length, true);
+    cv.setUint32(42, off, true);
+    cen.set(n, 46);
+    partes.push(loc, d); central.push(cen);
+    off += loc.length + d.length;
+  }
+  const tamCentral = central.reduce((s, c) => s + c.length, 0);
+  const fim = new Uint8Array(22), fv = new DataView(fim.buffer);
+  fv.setUint32(0, 0x06054b50, true); fv.setUint16(8, arquivos.length, true); fv.setUint16(10, arquivos.length, true);
+  fv.setUint32(12, tamCentral, true); fv.setUint32(16, off, true);
+  const tudo = [...partes, ...central, fim];
+  const saida = new Uint8Array(tudo.reduce((s, x) => s + x.length, 0));
+  let p = 0;
+  for (const x of tudo) { saida.set(x, p); p += x.length; }
+  return saida;
 }
 
-/** Missão Mission Planner / ArduPilot (.waypoints, formato QGC WPL 110). */
-export function paraWaypointsMP(plano, { altura }) {
-  const wps = waypoints(plano);
-  const l = ['QGC WPL 110'];
-  const add = (cur, frame, cmd, p, lat = 0, lon = 0, alt = 0) =>
-    l.push([l.length - 1, cur, frame, cmd, ...p, f7(lat), f7(lon), alt.toFixed(2), 1].join('\t'));
-  add(1, 0, 16, [0, 0, 0, 0], wps[0].lat, wps[0].lon, 0); // home
-  add(0, 3, 22, [0, 0, 0, 0], 0, 0, altura); // decolagem
-  add(0, 3, 178, [1, plano.velocidade, -1, 0]);
-  wps.forEach((w, i) => {
-    add(0, 3, 16, [0, 0, 0, 0], w.lat, w.lon, altura);
-    add(0, 3, 206, i % 2 === 0 ? [plano.base, 0, 1, 0] : [0, 0, 0, 0]);
+// ---------- missão DJI Fly (KMZ de waypoints, formato WPML) ----------
+// O DJI Fly não tem botão de importar: você salva uma missão qualquer no app (a "missão-modelo")
+// e troca o arquivo .kmz dela pelo gerado aqui, com o mesmo nome. O KMZ tem duas peças:
+//   wpmz/template.kml  (o DJI Fly não usa, mas recusa o arquivo sem ela)
+//   wpmz/waylines.wpml (a rota que o drone executa)
+// Alturas relativas ao ponto de decolagem (o DJI Fly não segue o relevo). Até 200 pontos por missão.
+
+const NS_WPML = 'http://www.uav.com/wpmz/1.0.2';
+const f8 = (v) => v.toFixed(8);
+const n1 = (v) => (Math.round(v * 10) / 10).toString();
+
+function distM(a, b) {
+  const k = Math.cos(((a.lat + b.lat) / 2) * RAD);
+  return Math.hypot((b.lon - a.lon) * RAD * R * k, (b.lat - a.lat) * RAD * R);
+}
+
+/**
+ * Lê a missão-modelo salva pelo DJI Fly: devolve o código do drone e quantos pontos ela tem.
+ * Aceita o .kmz inteiro (usa wpmz/waylines.wpml ou wpmz/template.kml).
+ */
+export async function lerMissaoDJIFly(buffer, inflarRaw) {
+  const z = listarZip(buffer);
+  const e = z.entradas.find((x) => /waylines\.wpml$/i.test(x.nome)) || z.entradas.find((x) => /template\.kml$/i.test(x.nome));
+  if (!e) throw new Error('este KMZ não é uma missão do DJI Fly (não tem a pasta wpmz)');
+  const t = await textoDoZip(z, e, inflarRaw);
+  const num = (tag) => { const m = t.match(new RegExp(`<wpml:${tag}>\\s*(-?\\d+)\\s*</wpml:${tag}>`)); return m ? +m[1] : null; };
+  const droneEnum = num('droneEnumValue');
+  if (droneEnum == null) throw new Error('não achei o código do drone na missão do DJI Fly');
+  return { droneEnum, droneSub: num('droneSubEnumValue') ?? 0, pontos: (t.match(/<Placemark>/g) || []).length };
+}
+
+/**
+ * Divide a rota em missões para o DJI Fly.
+ * @param {object} plano  resultado de `planejar`
+ * @param {object} o
+ * @param {number} o.altura  altura de voo (m) sobre a decolagem
+ * @param {object} o.drone   item de DRONES
+ * @param {'ponto'|'distancia'} [o.modo]  'ponto': para e fotografa em cada ponto (mais garantido);
+ *   'distancia': pontos só nas pontas das linhas e foto a cada `base` metros (menos pontos, nem toda
+ *   versão do DJI Fly respeita)
+ * @param {number} [o.droneEnum]  código do drone lido da missão-modelo (prevalece sobre o do catálogo)
+ * @param {number} [o.droneSub]
+ * @param {number} [o.limitePontos]  padrão 200
+ * @param {number} [o.parada]  segundos parado em cada foto no modo 'ponto' (padrão 2,5)
+ * @param {number} [o.maxPontos]  usa só os primeiros N pontos (missão de teste)
+ * @param {number} [o.agora]  carimbo de data (ms), para testes
+ */
+export function missoesDJIFly(plano, o) {
+  const { altura, drone } = o;
+  if (!(altura > 0 && altura <= 120)) throw new Error('a altura deve ficar entre 1 e 120 m');
+  const modo = o.modo === 'distancia' ? 'distancia' : 'ponto';
+  const limite = Math.min(o.limitePontos ?? LIMITE_PONTOS_DJI_FLY, LIMITE_PONTOS_DJI_FLY);
+  const parada = o.parada ?? 2.5;
+  const droneEnum = o.droneEnum ?? drone.droneEnum;
+  const droneSub = o.droneSub ?? drone.droneSub ?? 0;
+  const agora = o.agora ?? Date.now();
+  // orçamento de tempo por bateria: minutos úteis menos ~3 min para ir, voltar e pousar
+  const orcamentoS = Math.max(120, (drone.bateriaMin ?? 20) * 60 - 180);
+
+  // velocidade: no modo ponto o drone para em cada foto; entre pontos usa a do plano (máx. 10 m/s)
+  const vel = Math.max(1, Math.min(modo === 'ponto' ? 10 : 12, plano.velocidade));
+  let pts = modo === 'ponto'
+    ? plano.estacoesGeo.map((e) => ({ lat: e.lat, lon: e.lon, foto: true }))
+    : plano.caminhoGeo.map(([lat, lon], i) => ({ lat, lon, foto: i % 2 === 0 }));
+  if (o.maxPontos) pts = pts.slice(0, Math.max(2, o.maxPontos));
+
+  // divide em partes: no máximo `limite` pontos e o tempo de uma bateria
+  const partes = [];
+  let atual = [], tempo = 0;
+  const custo = (a, b) => (a ? distM(a, b) / vel : 0) + (modo === 'ponto' ? parada : 0);
+  for (const p of pts) {
+    const c = custo(atual[atual.length - 1], p);
+    if (atual.length && (atual.length >= limite || tempo + c > orcamentoS)) {
+      partes.push({ pontos: atual, tempoS: tempo });
+      // no modo distância a parte seguinte recomeça no fim da anterior para não perder trecho
+      atual = modo === 'distancia' ? [{ ...atual[atual.length - 1] }] : [];
+      tempo = 0;
+    }
+    tempo += custo(atual[atual.length - 1], p);
+    atual.push(p);
+  }
+  if (atual.length >= 2 || (atual.length && !partes.length)) partes.push({ pontos: atual, tempoS: tempo });
+
+  return partes.map((parte, i) => {
+    const nome = `Voo Drone ${i + 1} de ${partes.length}`;
+    let distancia = 0;
+    parte.pontos.forEach((p, k) => { if (k) distancia += distM(parte.pontos[k - 1], p); });
+    const xml = gerarWPML(parte.pontos, { altura, vel, modo, base: plano.base, droneEnum, droneSub, agora, distancia, duracao: parte.tempoS });
+    return {
+      nome, arquivo: `voo-drone-parte-${i + 1}-de-${partes.length}.kmz`,
+      pontos: parte.pontos.length, fotos: modo === 'ponto' ? parte.pontos.length : Math.round(distancia / plano.base),
+      tempoMin: parte.tempoS / 60, distanciaM: distancia,
+      inicio: parte.pontos[0],
+      template: xml.template, waylines: xml.waylines,
+      kmz: montarZip([['wpmz/template.kml', xml.template], ['wpmz/waylines.wpml', xml.waylines]]),
+    };
   });
-  add(0, 3, 20, [0, 0, 0, 0]);
-  return l.join('\n') + '\n';
+}
+
+function gerarWPML(pontos, { altura, vel, modo, base, droneEnum, droneSub, agora, distancia, duracao }) {
+  const h = n1(altura), v = n1(vel);
+  const config = `<wpml:missionConfig>
+      <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
+      <wpml:finishAction>goHome</wpml:finishAction>
+      <wpml:exitOnRCLost>executeLostAction</wpml:exitOnRCLost>
+      <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
+      <wpml:globalTransitionalSpeed>${v}</wpml:globalTransitionalSpeed>
+      <wpml:droneInfo>
+        <wpml:droneEnumValue>${droneEnum}</wpml:droneEnumValue>
+        <wpml:droneSubEnumValue>${droneSub}</wpml:droneSubEnumValue>
+      </wpml:droneInfo>
+    </wpml:missionConfig>`;
+  const parar = modo === 'ponto';
+  const giro = `<wpml:waypointTurnParam>
+          <wpml:waypointTurnMode>toPointAndStopWithDiscontinuityCurvature</wpml:waypointTurnMode>
+          <wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist>
+        </wpml:waypointTurnParam>`;
+  const rumo = `<wpml:waypointHeadingParam>
+          <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
+          <wpml:waypointHeadingAngle>0</wpml:waypointHeadingAngle>
+          <wpml:waypointPoiPoint>0.000000,0.000000,0.000000</wpml:waypointPoiPoint>
+          <wpml:waypointHeadingAngleEnable>0</wpml:waypointHeadingAngleEnable>
+          <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+        </wpml:waypointHeadingParam>`;
+  let grupo = 0, acao = 0;
+  const acoesFoto = (i) => {
+    const id = grupo++;
+    const disparo = parar
+      ? '<wpml:actionTrigger><wpml:actionTriggerType>reachPoint</wpml:actionTriggerType></wpml:actionTrigger>'
+      : `<wpml:actionTrigger><wpml:actionTriggerType>multipleDistance</wpml:actionTriggerType><wpml:actionTriggerParam>${n1(base)}</wpml:actionTriggerParam></wpml:actionTrigger>`;
+    const fim = parar ? i : i + 1;
+    return `<wpml:actionGroup>
+          <wpml:actionGroupId>${id}</wpml:actionGroupId>
+          <wpml:actionGroupStartIndex>${i}</wpml:actionGroupStartIndex>
+          <wpml:actionGroupEndIndex>${fim}</wpml:actionGroupEndIndex>
+          <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
+          ${disparo}
+          <wpml:action>
+            <wpml:actionId>${acao++}</wpml:actionId>
+            <wpml:actionActuatorFunc>takePhoto</wpml:actionActuatorFunc>
+            <wpml:actionActuatorFuncParam>
+              <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+            </wpml:actionActuatorFuncParam>
+          </wpml:action>
+        </wpml:actionGroup>`;
+  };
+  const ultimo = pontos.length - 1;
+  const marcas = pontos.map((p, i) => {
+    // no modo distância a foto liga no início de cada linha e vale até o ponto seguinte (fim da linha)
+    const comFoto = parar ? p.foto : p.foto && i < ultimo;
+    return `      <Placemark>
+        <Point><coordinates>${f8(p.lon)},${f8(p.lat)}</coordinates></Point>
+        <wpml:index>${i}</wpml:index>
+        <wpml:executeHeight>${h}</wpml:executeHeight>
+        <wpml:waypointSpeed>${v}</wpml:waypointSpeed>
+        ${rumo}
+        ${giro}
+        <wpml:useStraightLine>1</wpml:useStraightLine>
+        <wpml:waypointGimbalHeadingParam>
+          <wpml:waypointGimbalPitchAngle>-90</wpml:waypointGimbalPitchAngle>
+          <wpml:waypointGimbalYawAngle>0</wpml:waypointGimbalYawAngle>
+        </wpml:waypointGimbalHeadingParam>
+        ${comFoto ? acoesFoto(i) : ''}
+      </Placemark>`;
+  }).join('\n');
+
+  const waylines = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="${NS_WPML}">
+  <Document>
+    ${config}
+    <Folder>
+      <wpml:templateId>0</wpml:templateId>
+      <wpml:executeHeightMode>relativeToStartPoint</wpml:executeHeightMode>
+      <wpml:waylineId>0</wpml:waylineId>
+      <wpml:distance>${Math.round(distancia)}</wpml:distance>
+      <wpml:duration>${Math.round(duracao)}</wpml:duration>
+      <wpml:autoFlightSpeed>${v}</wpml:autoFlightSpeed>
+${marcas}
+    </Folder>
+  </Document>
+</kml>
+`;
+
+  const marcasTemplate = pontos.map((p, i) => `      <Placemark>
+        <Point><coordinates>${f8(p.lon)},${f8(p.lat)}</coordinates></Point>
+        <wpml:index>${i}</wpml:index>
+        <wpml:height>${h}</wpml:height>
+        <wpml:useGlobalHeight>1</wpml:useGlobalHeight>
+        <wpml:useGlobalSpeed>1</wpml:useGlobalSpeed>
+        <wpml:useGlobalHeadingParam>1</wpml:useGlobalHeadingParam>
+        <wpml:useGlobalTurnParam>1</wpml:useGlobalTurnParam>
+        <wpml:gimbalPitchAngle>-90</wpml:gimbalPitchAngle>
+      </Placemark>`).join('\n');
+  const template = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="${NS_WPML}">
+  <Document>
+    <wpml:author>fly</wpml:author>
+    <wpml:createTime>${agora}</wpml:createTime>
+    <wpml:updateTime>${agora}</wpml:updateTime>
+    ${config}
+    <Folder>
+      <wpml:templateType>waypoint</wpml:templateType>
+      <wpml:templateId>0</wpml:templateId>
+      <wpml:waylineCoordinateSysParam>
+        <wpml:coordinateMode>WGS84</wpml:coordinateMode>
+        <wpml:heightMode>relativeToStartPoint</wpml:heightMode>
+      </wpml:waylineCoordinateSysParam>
+      <wpml:autoFlightSpeed>${v}</wpml:autoFlightSpeed>
+      <wpml:globalHeight>${h}</wpml:globalHeight>
+      <wpml:gimbalPitchMode>usePointSetting</wpml:gimbalPitchMode>
+      <wpml:globalWaypointHeadingParam>
+        <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
+        <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+      </wpml:globalWaypointHeadingParam>
+      <wpml:globalWaypointTurnMode>toPointAndStopWithDiscontinuityCurvature</wpml:globalWaypointTurnMode>
+      <wpml:globalUseStraightLine>1</wpml:globalUseStraightLine>
+${marcasTemplate}
+    </Folder>
+  </Document>
+</kml>
+`;
+  return { template, waylines };
 }

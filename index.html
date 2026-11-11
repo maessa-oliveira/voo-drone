@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voo Drone — planejador de voo fotogramétrico</title>
-<meta name="description" content="Planeje o voo de mapeamento com drone: GSD, linhas de voo, número de fotos, tempo, baterias e precisão esperada. Exporta KML. Roda no navegador.">
+<title>Voo Drone — mapeamento com DJI Fly</title>
+<meta name="description" content="Abra a área em KML ou KMZ e gere no celular a missão de mapeamento para o DJI Fly (Mini 4 Pro e Air 3): GSD, linhas de voo, fotos, tempo e baterias.">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Voo Drone — planejador de voo fotogramétrico">
-<meta property="og:description" content="GSD, linhas de voo, fotos, tempo e baterias para o seu aerolevantamento, direto no navegador.">
+<meta property="og:title" content="Voo Drone — mapeamento com DJI Fly">
+<meta property="og:description" content="Do KML/KMZ da área à missão de mapeamento no DJI Fly (Mini 4 Pro e Air 3), pelo celular.">
 <meta property="og:url" content="https://maessa-oliveira.github.io/voo-drone/">
 <meta property="og:image" content="https://maessa-oliveira.github.io/voo-drone/docs/og-card.png">
 <meta property="og:image:width" content="1200">
@@ -16,6 +16,9 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g fill='none' stroke='%2333a39a' stroke-width='2.4'><circle cx='8' cy='8' r='4'/><circle cx='24' cy='8' r='4'/><circle cx='8' cy='24' r='4'/><circle cx='24' cy='24' r='4'/><path d='M11 11 L21 21 M21 11 L11 21'/></g></svg>">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="estilo.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f1716">
+<link rel="apple-touch-icon" href="docs/icone-192.png">
 </head>
 <body>
 <div id="mapa" aria-label="Mapa da área de voo"></div>
@@ -23,22 +26,28 @@
 <aside id="painel">
   <header>
     <h1>Voo Drone</h1>
-    <p>Planejamento de aerolevantamento: desenhe a área e ajuste o voo.</p>
+    <p>Mapeamento com DJI Fly: abra a área (KML/KMZ), ajuste o voo e gere a missão.</p>
   </header>
 
   <section class="bloco">
     <div class="acoes">
-      <button type="button" id="btnDesenhar">Desenhar área</button>
+      <label class="arquivo principal" for="arquivo">Abrir KML/KMZ</label>
+      <button type="button" id="btnDesenhar" class="sec">Desenhar área</button>
       <button type="button" id="btnExemplo" class="sec">Exemplo</button>
       <button type="button" id="btnLimpar" class="sec">Limpar</button>
-      <label class="arquivo" for="arquivo">Abrir KML/KMZ<input type="file" id="arquivo" accept=".kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" hidden></label>
+      <input type="file" id="arquivo" accept=".kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" hidden>
     </div>
-    <p id="instrucao" class="dica">Toque no mapa para marcar os vértices da área (toque no primeiro vértice ou em "Concluir" para fechar), ou abra a área em KML/KMZ do Google Earth.</p>
+    <p id="instrucao" class="dica" hidden>Toque no mapa para marcar os vértices da área (toque no primeiro vértice ou em "Concluir" para fechar).</p>
   </section>
 
   <section class="bloco">
-    <label for="camera">Drone / câmera</label>
+    <label for="camera">Drone (app DJI Fly)</label>
     <select id="camera"></select>
+    <label for="modo">Como fotografar</label>
+    <select id="modo">
+      <option value="ponto">Parar em cada foto (garantido)</option>
+      <option value="distancia">Foto por distância (experimental)</option>
+    </select>
 
     <div class="faixa">
       <label for="altura">Altura de voo <b id="vAltura">100 m</b></label>
@@ -69,7 +78,7 @@
       <div class="cartao"><span>Área</span><b id="rArea">—</b></div>
       <div class="cartao"><span>Fotos</span><b id="rFotos">—</b></div>
       <div class="cartao"><span>Tempo de voo</span><b id="rTempo">—</b></div>
-      <div class="cartao"><span>Baterias</span><b id="rBaterias">—</b></div>
+      <div class="cartao"><span>Missões (1 bateria cada)</span><b id="rBaterias">—</b></div>
     </div>
     <table class="det">
       <tr><th>GSD (pixel no chão)</th><td id="rGsd">—</td></tr>
@@ -82,19 +91,35 @@
     </table>
     <p class="dica">* Com RTK/PPK ou pontos de controle bem distribuídos. Estimativa prática; confira com pontos de checagem.</p>
     <div class="exportar">
-      <span class="rot">Levar para o drone</span>
+      <span class="rot">Levar para o DJI Fly</span>
+      <label class="arquivo" for="modelo">Missão-modelo do DJI Fly (opcional)<input type="file" id="modelo" accept=".kmz" hidden></label>
+      <p class="dica" id="modeloInfo">Abra o .kmz da missão que você salvou no DJI Fly: eu copio o código do drone e uso o mesmo nome de arquivo.</p>
       <div class="acoes">
-        <button type="button" id="btnKML" title="Área e rota para Google Earth; no DJI Pilot 2 importe no modo Mapeamento">KML (DJI Pilot 2 / Google Earth)</button>
-        <button type="button" id="btnLitchi" class="sec" title="Missão por waypoints para o app Litchi (drones DJI)">Litchi (CSV)</button>
-        <button type="button" id="btnQGC" class="sec" title="Missão para QGroundControl (PX4/ArduPilot)">QGroundControl (.plan)</button>
-        <button type="button" id="btnMP" class="sec" title="Missão para Mission Planner (ArduPilot)">Mission Planner (.waypoints)</button>
+        <button type="button" id="btnTeste" title="Só os 5 primeiros pontos: para conferir no campo antes do voo completo">KMZ de teste (5 fotos)</button>
       </div>
-      <p class="dica">Confira a missão no simulador ou no app antes de voar: altitudes relativas à decolagem, sem seguir o relevo.</p>
+      <div id="partes" class="partes" aria-live="polite"></div>
+      <p class="aviso" id="aviso" hidden></p>
+      <details class="passos">
+        <summary>Como colocar a missão no DJI Fly</summary>
+        <ol>
+          <li>No DJI Fly, com o drone ligado, abra <b>Waypoints</b>, marque 2 ou 3 pontos quaisquer e salve. Faça <b>uma missão-modelo para cada parte</b>.</li>
+          <li>Ache a pasta da missão salva (a mais recente):
+            <ul>
+              <li><b>iPhone/iPad:</b> app Arquivos → No meu iPhone → DJI Fly → <code>wayline_mission</code>.</li>
+              <li><b>Android ou DJI RC 2:</b> pelo computador (cabo USB, modo Transferência de arquivos) em <code>Android/data/dji.go.v5/files/waypoint</code>.</li>
+            </ul>
+          </li>
+          <li>Dentro da pasta há um <code>.kmz</code> com um nome tipo <code>a1b2c3d4-….kmz</code>. Guarde uma cópia dele, coloque o KMZ daqui no lugar e <b>renomeie com o mesmo nome</b>. Não mude o nome da pasta.</li>
+          <li>Feche o DJI Fly de verdade (não só minimize) e abra de novo. A missão-modelo agora mostra a sua rota.</li>
+          <li>Voe primeiro o <b>KMZ de teste</b>, com o drone à vista: confira se a câmera aponta para baixo e se tira as fotos.</li>
+        </ol>
+      </details>
+      <p class="dica">Alturas relativas à decolagem: o DJI Fly não segue o relevo. Decole do ponto mais alto ou suba a altura em terreno inclinado. Respeite as regras da ANAC/DECEA (SARPAS).</p>
     </div>
     <p id="erro" class="erro" role="alert"></p>
   </section>
 
-  <footer>Código aberto (MIT) · <a href="https://github.com/maessa-oliveira/voo-drone">GitHub</a> · Planejamento de referência: confira as regras da ANAC/DECEA e o manual do drone.</footer>
+  <footer>Código aberto (MIT) · <a href="https://github.com/maessa-oliveira/voo-drone">GitHub</a> · Formato de missão baseado no WPML público da DJI: teste com o KMZ de teste antes do voo completo.</footer>
 </aside>
 
 <script src="vendor/leaflet/leaflet.js"></script>

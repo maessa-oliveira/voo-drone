@@ -1,5 +1,5 @@
 // Interface do planejador. Os cálculos estão em ./voo.js.
-import { CAMERAS, gsd, planejar, direcaoSugerida, paraKML, lerKML, kmlDeKMZ, paraLitchiCSV, paraQGCPlan, paraWaypointsMP, EXEMPLO_AREA } from './voo.js';
+import { DRONES, gsd, planejar, direcaoSugerida, lerKML, kmlDeKMZ, missoesDJIFly, lerMissaoDJIFly, EXEMPLO_AREA } from './voo.js';
 
 const L = window.L;
 const $ = (id) => document.getElementById(id);
@@ -23,10 +23,12 @@ const camVoo = L.layerGroup().addTo(mapa);
 let vertices = [];
 let desenhando = false;
 let plano = null;
+let missoes = [];
+let modelo = null; // { nome, droneEnum, droneSub } lido da missão-modelo do DJI Fly
 
 // ---------- controles ----------
-for (const [k, c] of Object.entries(CAMERAS)) $('camera').append(new Option(c.nome, k));
-const cam = () => CAMERAS[$('camera').value];
+for (const [k, c] of Object.entries(DRONES)) $('camera').append(new Option(c.nome, k));
+const cam = () => DRONES[$('camera').value];
 const params = () => ({
   camera: cam(), altura: +$('altura').value, frontal: +$('frontal').value / 100,
   lateral: +$('lateral').value / 100, direcao: +$('direcao').value,
@@ -72,6 +74,7 @@ function iniciarDesenho() {
 function concluir() {
   if (vertices.length < 3) { $('erro').textContent = 'Marque pelo menos 3 vértices.'; return; }
   desenhando = false;
+  $('instrucao').hidden = true;
   $('btnDesenhar').textContent = 'Redesenhar área';
   $('btnDesenhar').classList.remove('ativo');
   $('direcao').value = direcaoSugerida(vertices);
@@ -88,6 +91,9 @@ mapa.on('click', (ev) => {
 function limparResultado() {
   for (const id of ['rArea', 'rFotos', 'rTempo', 'rBaterias', 'rGsd', 'rPegada', 'rLinhas', 'rBase', 'rVel', 'rDist', 'rPrec']) $(id).textContent = '—';
   window.__voo = null;
+  missoes = [];
+  $('partes').replaceChildren();
+  $('aviso').hidden = true;
 }
 
 function atualizar(enquadrar = false) {
@@ -111,9 +117,12 @@ function atualizar(enquadrar = false) {
   }).addTo(camVoo);
 
   $('rArea').textContent = `${nf(p.areaHa, 1)} ha`;
-  $('rFotos').textContent = nf(p.fotos);
-  $('rTempo').textContent = p.tempoMin < 60 ? `${nf(p.tempoMin)} min` : `${Math.floor(p.tempoMin / 60)} h ${nf(p.tempoMin % 60)} min`;
-  $('rBaterias').textContent = nf(p.baterias);
+  missoes = missoesDJIFly(p, opcoesMissao());
+  const tMin = missoes.reduce((t, m) => t + m.tempoMin, 0);
+  $('rFotos').textContent = nf(missoes.reduce((t, m) => t + m.fotos, 0));
+  $('rTempo').textContent = tMin < 60 ? `${nf(tMin)} min` : `${Math.floor(tMin / 60)} h ${nf(tMin % 60)} min`;
+  $('rBaterias').textContent = nf(missoes.length);
+  mostrarPartes();
   $('rGsd').textContent = `${nf(p.gsdCm, 2)} cm/px`;
   $('rPegada').textContent = `${nf(p.pegada.largura)} × ${nf(p.pegada.altura)} m`;
   $('rLinhas').textContent = `${nf(p.nLinhas)} · a cada ${nf(p.espacLinhas, 1)} m`;
@@ -122,6 +131,7 @@ function atualizar(enquadrar = false) {
   $('rDist').textContent = `${nf(p.distanciaM / 1000, 2)} km`;
   $('rPrec').textContent = `H ${nf(p.precisao.horizontalCm[0], 1)}–${nf(p.precisao.horizontalCm[1], 1)} cm · V ${nf(p.precisao.verticalCm[0], 1)}–${nf(p.precisao.verticalCm[1], 1)} cm`;
   window.__voo = p;
+  window.__missoes = missoes;
   if (enquadrar) mapa.fitBounds(L.latLngBounds(vertices), margem());
 }
 const margem = () => (innerWidth > 720
@@ -131,6 +141,7 @@ const margem = () => (innerWidth > 720
 // ---------- eventos ----------
 for (const id of ['altura', 'frontal', 'lateral', 'direcao']) $(id).addEventListener('input', () => atualizar());
 $('camera').addEventListener('change', () => atualizar());
+$('modo').addEventListener('change', () => atualizar());
 $('btnDesenhar').addEventListener('click', () => (desenhando ? concluir() : iniciarDesenho()));
 $('btnLimpar').addEventListener('click', () => {
   vertices = []; desenhando = false; plano = null;
@@ -139,20 +150,65 @@ $('btnLimpar').addEventListener('click', () => {
 });
 $('btnSugerir').addEventListener('click', () => { if (vertices.length >= 3) { $('direcao').value = direcaoSugerida(vertices); atualizar(); } });
 $('btnExemplo').addEventListener('click', carregarExemplo);
-function baixar(nome, texto, tipo) {
-  const url = URL.createObjectURL(new Blob([texto], { type: tipo }));
+function baixar(nome, dados, tipo) {
+  const url = URL.createObjectURL(new Blob([dados], { type: tipo }));
   const el = document.createElement('a');
   el.href = url; el.download = nome; document.body.append(el); el.click(); el.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-const exportar = (fn) => () => {
-  if (!plano) { $('erro').textContent = 'Desenhe ou abra uma área primeiro.'; return; }
-  fn(params().altura);
-};
-$('btnKML').addEventListener('click', exportar((altura) => baixar('plano-de-voo.kml', paraKML(plano, vertices, { nome: `Plano de voo ${cam().nome}`, altura }), 'application/vnd.google-earth.kml+xml')));
-$('btnLitchi').addEventListener('click', exportar((altura) => baixar('missao-litchi.csv', paraLitchiCSV(plano, { altura }), 'text/csv')));
-$('btnQGC').addEventListener('click', exportar((altura) => baixar('missao.plan', paraQGCPlan(plano, { altura }), 'application/json')));
-$('btnMP').addEventListener('click', exportar((altura) => baixar('missao.waypoints', paraWaypointsMP(plano, { altura }), 'text/plain')));
+const TIPO_KMZ = 'application/vnd.google-earth.kmz';
+
+function opcoesMissao(extra = {}) {
+  return {
+    altura: params().altura, drone: cam(), modo: $('modo').value,
+    ...(modelo ? { droneEnum: modelo.droneEnum, droneSub: modelo.droneSub } : {}),
+    ...extra,
+  };
+}
+
+// nome do arquivo: com uma parte e a missão-modelo aberta, usa o mesmo nome dela (pronto para trocar)
+const nomeArquivo = (m, total) => (modelo && total === 1 ? modelo.nome : m.arquivo);
+
+function mostrarPartes() {
+  const box = $('partes');
+  box.replaceChildren();
+  missoes.forEach((m, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = i ? 'sec' : '';
+    b.dataset.parte = i;
+    b.textContent = `Baixar ${missoes.length > 1 ? `parte ${i + 1} de ${missoes.length}` : 'missão'} · ${nf(m.fotos)} fotos · ${nf(m.tempoMin)} min`;
+    b.addEventListener('click', () => baixar(nomeArquivo(m, missoes.length), m.kmz, TIPO_KMZ));
+    box.append(b);
+  });
+  const avisos = [];
+  if (!cam().enumConfirmado && !modelo) avisos.push(`Para o ${cam().nome}, abra antes a missão-modelo do DJI Fly: o código deste drone não é publicado pela DJI e eu copio da missão que o app salvou.`);
+  if ($('modo').value === 'distancia') avisos.push('Foto por distância é experimental: nem toda versão do DJI Fly dispara as fotos. Voe primeiro o KMZ de teste.');
+  if (missoes.length > 1) avisos.push(`A área foi dividida em ${missoes.length} missões (até 200 pontos e uma bateria cada). Crie uma missão-modelo no DJI Fly para cada parte.`);
+  $('aviso').textContent = avisos.join(' ');
+  $('aviso').hidden = !avisos.length;
+}
+
+$('btnTeste').addEventListener('click', () => {
+  if (!plano) { $('erro').textContent = 'Abra ou desenhe uma área primeiro.'; return; }
+  const [t] = missoesDJIFly(plano, opcoesMissao({ modo: 'ponto', maxPontos: 5 }));
+  baixar(modelo ? modelo.nome : 'voo-drone-teste-5-fotos.kmz', t.kmz, TIPO_KMZ);
+});
+
+$('modelo').addEventListener('change', async () => {
+  const f = $('modelo').files[0];
+  $('modelo').value = '';
+  if (!f) return;
+  $('erro').textContent = '';
+  try {
+    const info = await lerMissaoDJIFly(await f.arrayBuffer(), inflarRaw);
+    modelo = { nome: f.name, ...info };
+    $('modeloInfo').textContent = `Missão-modelo: ${f.name} (drone código ${info.droneEnum}). O arquivo baixado sai com este nome.`;
+    atualizar();
+  } catch (e) {
+    $('erro').textContent = `${f.name}: ${e.message}.`;
+  }
+});
 
 async function inflarRaw(bytes) {
   const ds = new DecompressionStream('deflate-raw');
@@ -194,3 +250,5 @@ function carregarExemplo() {
 rotulos();
 carregarExemplo();
 window.__pronto = true;
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

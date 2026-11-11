@@ -1,7 +1,7 @@
 {
   "name": "voo-drone",
-  "version": "1.0.0",
-  "description": "Planejador de voo fotogramétrico para drones: GSD, linhas de voo, fotos, tempo e KML",
+  "version": "2.0.0",
+  "description": "Missões de mapeamento para o DJI Fly (Mini 4 Pro e Air 3) a partir de KML/KMZ, pelo celular",
   "type": "module",
   "scripts": {
     "test": "node --test tests/voo.test.js",
