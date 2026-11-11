@@ -204,6 +204,169 @@ export const EXEMPLO_AREA = [
   [-12.24750, -38.96390], [-12.24690, -38.96940],
 ];
 
+const lerCoords = (txt) => txt.trim().split(/\s+/).map((t) => t.split(',').map(Number))
+  .filter((c) => c.length >= 2 && Number.isFinite(c[0]) && Number.isFinite(c[1]))
+  .map(([lon, lat]) => [lat, lon]);
+const semRepetirFim = (pts) => {
+  if (pts.length > 1) {
+    const [a, b] = [pts[0], pts[pts.length - 1]];
+    if (Math.abs(a[0] - b[0]) < 1e-12 && Math.abs(a[1] - b[1]) < 1e-12) pts.pop();
+  }
+  return pts;
+};
+const desesc = (s) => s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').trim();
+
+/**
+ * Lê todas as geometrias úteis de um KML (por exemplo o KMZ de uma AS): áreas (Polygon) e eixos
+ * (LineString com 2 ou mais pontos). Pontos (marcos, estacas) são ignorados.
+ * @returns {Array<{tipo: 'area'|'eixo', nome: string, pts: Array<[number, number]>}>}
+ */
+export function lerGeometriasKML(texto) {
+  const s = String(texto);
+  const geos = [];
+  const blocos = s.match(/<Placemark[\s>][\s\S]*?<\/Placemark>/gi) || [];
+  for (const pm of blocos) {
+    const nm = pm.match(/<name>([\s\S]*?)<\/name>/i);
+    const nome = nm ? desesc(nm[1]) : '';
+    for (const m of pm.matchAll(/<Polygon[\s\S]*?<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/gi)) {
+      const pts = semRepetirFim(lerCoords(m[1]));
+      if (pts.length >= 3) geos.push({ tipo: 'area', nome, pts });
+    }
+    const semPoligono = pm.replace(/<Polygon[\s\S]*?<\/Polygon>/gi, '');
+    for (const m of semPoligono.matchAll(/<LineString[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/gi)) {
+      const pts = lerCoords(m[1]);
+      if (pts.length >= 2) geos.push({ tipo: 'eixo', nome, pts });
+    }
+    for (const m of semPoligono.matchAll(/<LinearRing[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>/gi)) {
+      const pts = semRepetirFim(lerCoords(m[1]));
+      if (pts.length >= 3) geos.push({ tipo: 'area', nome, pts });
+    }
+  }
+  return geos;
+}
+
+/** Comprimento (m) de uma linha em graus (lat, lon). */
+export function comprimento(pts) {
+  let d = 0;
+  for (let i = 1; i < pts.length; i++) d += distM({ lat: pts[i - 1][0], lon: pts[i - 1][1] }, { lat: pts[i][0], lon: pts[i][1] });
+  return d;
+}
+
+// desloca uma polilinha no plano para o lado esquerdo (d > 0) ou direito (d < 0), com cantos em esquadria
+function deslocar(xy, d) {
+  const n = xy.length, out = [];
+  const normal = (a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1; return [-dy / L, dx / L]; };
+  for (let i = 0; i < n; i++) {
+    const n1 = i > 0 ? normal(xy[i - 1], xy[i]) : null;
+    const n2 = i < n - 1 ? normal(xy[i], xy[i + 1]) : null;
+    let nx, ny, k = 1;
+    if (n1 && n2) {
+      nx = n1[0] + n2[0]; ny = n1[1] + n2[1];
+      const L = Math.hypot(nx, ny);
+      if (L < 1e-9) { [nx, ny] = n1; } else {
+        nx /= L; ny /= L;
+        k = Math.min(3, 1 / Math.max(1e-6, nx * n1[0] + ny * n1[1]));
+      }
+    } else [nx, ny] = n1 || n2;
+    out.push([xy[i][0] + nx * d * k, xy[i][1] + ny * d * k]);
+  }
+  return out;
+}
+
+// estende a polilinha `e` metros nas duas pontas
+function estender(xy, e) {
+  const r = xy.map((q) => [...q]);
+  const ext = (a, b) => { const dx = a[0] - b[0], dy = a[1] - b[1], L = Math.hypot(dx, dy) || 1; return [a[0] + (dx / L) * e, a[1] + (dy / L) * e]; };
+  r[0] = ext(xy[0], xy[1]);
+  r[r.length - 1] = ext(xy[xy.length - 1], xy[xy.length - 2]);
+  return r;
+}
+
+// pontos ao longo da polilinha, espaçados de no máximo `passo`, incluindo as duas pontas
+function amostrar(xy, passo) {
+  const segs = [];
+  let total = 0;
+  for (let i = 1; i < xy.length; i++) { const L = Math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]); segs.push(L); total += L; }
+  const n = Math.max(2, Math.ceil(total / passo - 1e-6) + 1);
+  const pts = [];
+  let s = 0, k = 0;
+  for (let j = 0; j < n; j++) {
+    const alvo = (total * j) / (n - 1);
+    while (k < segs.length - 1 && s + segs[k] < alvo - 1e-9) { s += segs[k]; k++; }
+    const t = segs[k] ? Math.min(1, (alvo - s) / segs[k]) : 0;
+    pts.push([xy[k][0] + (xy[k + 1][0] - xy[k][0]) * t, xy[k][1] + (xy[k + 1][1] - xy[k][1]) * t]);
+  }
+  return { pts, total };
+}
+
+/**
+ * Planeja o voo de uma faixa ao longo de um eixo (duto, estrada, rede): linhas paralelas ao eixo,
+ * cobrindo `largura` metros (metade de cada lado). Devolve o mesmo formato de `planejar`, mais
+ * `areaGeo` (o polígono da faixa, para mostrar no mapa).
+ * @param {object} p  como em `planejar`, trocando `area` por `eixo` (pontos lat, lon) e `largura` (m)
+ */
+export function planejarCorredor(p) {
+  const { camera: cam, altura, frontal, lateral, largura } = p;
+  if (!Array.isArray(p.eixo) || p.eixo.length < 2) throw new Error('o eixo precisa de pelo menos 2 pontos');
+  if (!(largura > 0)) throw new Error('largura da faixa inválida');
+  if (!(altura > 0)) throw new Error('altura de voo inválida');
+  if (!(frontal >= 0 && frontal < 1 && lateral >= 0 && lateral < 1)) throw new Error('sobreposições devem estar entre 0% e 99%');
+  const lat0 = p.eixo.reduce((s, q) => s + q[0], 0) / p.eixo.length;
+  const lon0 = p.eixo.reduce((s, q) => s + q[1], 0) / p.eixo.length;
+  const proj = projecao(lat0, lon0);
+  // tira pontos repetidos do eixo
+  const xy = p.eixo.map(proj.para).filter((q, i, a) => !i || Math.hypot(q[0] - a[i - 1][0], q[1] - a[i - 1][1]) > 0.01);
+  if (xy.length < 2) throw new Error('o eixo precisa de pelo menos 2 pontos diferentes');
+
+  const foto = gsd(cam, altura);
+  const espacLinhas = foto.larguraM * (1 - lateral);
+  const base = foto.alturaM * (1 - frontal);
+  const obt = p.obturador ?? 1 / 1000;
+  const vIntervalo = base / (cam.intervalo ?? 1);
+  const vArrasto = (0.5 * foto.gsdCm / 100) / obt;
+  const vMax = Math.min(12, vIntervalo, vArrasto);
+  const vel = p.velocidade ?? Math.floor(vMax * 10) / 10;
+
+  const nLinhas = Math.max(1, Math.ceil(largura / espacLinhas));
+  const linhas = [];
+  for (let i = 0; i < nLinhas; i++) {
+    const off = ((nLinhas - 1) / 2 - i) * espacLinhas; // da esquerda para a direita
+    let l = estender(deslocar(xy, off), base);
+    if (i % 2) l = l.slice().reverse(); // zigue-zague
+    linhas.push(l);
+  }
+  let dist = 0;
+  const caminho = [], estacoes = [];
+  linhas.forEach((l, i) => {
+    const { pts, total } = amostrar(l, base);
+    dist += total;
+    if (i) { const ant = caminho[caminho.length - 1]; dist += Math.hypot(l[0][0] - ant[0], l[0][1] - ant[1]); }
+    caminho.push(...l);
+    pts.forEach((q) => estacoes.push({ q, linha: i }));
+  });
+  const comp = amostrar(xy, 1e9).total;
+  const faixa = [...deslocar(xy, largura / 2), ...deslocar(xy, -largura / 2).reverse()];
+  const tempoCurva = p.tempoCurva ?? 8;
+  const tempoS = dist / vel + Math.max(0, linhas.length - 1) * tempoCurva;
+  const bateriaMin = p.bateriaMin ?? cam.bateriaMin ?? 20;
+  return {
+    areaM2: comp * largura, areaHa: (comp * largura) / 10000, comprimentoM: comp, largura,
+    gsdCm: foto.gsdCm, pegada: { largura: foto.larguraM, altura: foto.alturaM },
+    espacLinhas, base,
+    nLinhas: linhas.length, fotos: estacoes.length,
+    distanciaM: dist, velocidade: vel, velocidadeMax: vMax,
+    limitante: vMax === vIntervalo ? 'intervalo da câmera' : vMax === vArrasto ? 'arrasto da imagem' : 'limite de segurança',
+    tempoMin: tempoS / 60, baterias: Math.max(1, Math.ceil(tempoS / 60 / bateriaMin)), bateriaMin,
+    precisao: { horizontalCm: [1 * foto.gsdCm, 2 * foto.gsdCm], verticalCm: [1.5 * foto.gsdCm, 3 * foto.gsdCm] },
+    linhasGeo: linhas.map((l) => l.map(proj.de)),
+    // no corredor a "rota" ainda é ponta–ponta das linhas para o modo foto por distância
+    caminhoGeo: linhas.flatMap((l) => [proj.de(l[0]), ...l.slice(1, -1).map(proj.de), proj.de(l[l.length - 1])]),
+    caminhoFoto: linhas.flatMap((l) => l.map((q, k) => k < l.length - 1)),
+    estacoesGeo: estacoes.map((e) => { const [lat, lon] = proj.de(e.q); return { lat, lon, linha: e.linha }; }),
+    areaGeo: faixa.map(proj.de),
+  };
+}
+
 /**
  * Lê a área de um KML (texto): usa o primeiro Polygon (anel externo); sem polígono, o primeiro
  * LinearRing ou LineString com 3 ou mais pontos. Devolve [[lat, lon], ...] sem repetir o 1º ponto.
@@ -381,7 +544,7 @@ export function missoesDJIFly(plano, o) {
   const vel = Math.max(1, Math.min(modo === 'ponto' ? 10 : 12, plano.velocidade));
   let pts = modo === 'ponto'
     ? plano.estacoesGeo.map((e) => ({ lat: e.lat, lon: e.lon, foto: true }))
-    : plano.caminhoGeo.map(([lat, lon], i) => ({ lat, lon, foto: i % 2 === 0 }));
+    : plano.caminhoGeo.map(([lat, lon], i) => ({ lat, lon, foto: plano.caminhoFoto ? plano.caminhoFoto[i] : i % 2 === 0 }));
   if (o.maxPontos) pts = pts.slice(0, Math.max(2, o.maxPontos));
 
   // divide em partes: no máximo `limite` pontos e o tempo de uma bateria

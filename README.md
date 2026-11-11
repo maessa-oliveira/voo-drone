@@ -5,7 +5,7 @@
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-green)](LICENSE)
 
 **Mapeamento com drone DJI pelo celular.** Abra a área em **KML ou KMZ** (Google Earth, QGIS, arquivo do
-cliente), escolha o drone, a altura e as sobreposições, e o Voo Drone gera a **missão de waypoints para o
+cliente, KMZ da AS com área ou eixo do duto), escolha o drone, a altura e as sobreposições, e o Voo Drone gera a **missão de waypoints para o
 app DJI Fly** (Mini 4 Pro e Air 3), já dividida em partes de até 200 pontos e uma bateria.
 
 👉 **[Abrir no celular](https://maessa-oliveira.github.io/voo-drone/)**: dá para instalar na tela inicial e abrir sem internet (o mapa de fundo precisa de internet).
@@ -27,6 +27,9 @@ app DJI Fly** (Mini 4 Pro e Air 3), já dividida em partes de até 200 pontos e 
 | Partes da missão | até 200 pontos (limite do DJI Fly) e o tempo útil de uma bateria menos 3 min |
 | Precisão esperada | H ≈ 1–2 × GSD, V ≈ 1,5–3 × GSD (com pontos de controle) |
 
+- **KMZ da obra (AS):** o arquivo pode ter várias áreas, eixos e marcos. O app lista as áreas e os eixos
+  para você escolher (os marcos são ignorados). Se escolher um **eixo** (duto, estrada, rede), ele monta a
+  **faixa** com a largura que você define e voa linhas paralelas ao eixo.
 - Linhas em **zigue-zague** recortadas no polígono (funciona em áreas côncavas), com direção
   **automática pelo lado mais longo** (menos curvas).
 - Dois jeitos de fotografar: **parar em cada foto** (um ponto por foto, o mais garantido no DJI Fly) ou

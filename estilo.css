@@ -9,6 +9,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; background: #0f1716; color: var(--texto);
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 #mapa { position: fixed; inset: 0; background: #0f1716; }

@@ -65,6 +65,23 @@ try {
   await page.waitForFunction((ha) => window.__voo && Math.abs(window.__voo.areaHa - ha) < 0.01, haKml);
   console.log('interação ok', JSON.stringify(tri), 'área do KML', haKml.toFixed(1), 'ha');
   console.log('KML e KMZ ok');
+  // KMZ de AS com eixo do duto, marco e área: lista para escolher; o eixo vira faixa
+  const as = `<kml><Document><Placemark><name>Eixo do duto</name><LineString><coordinates>-38.500,-12.500,0 -38.490,-12.505,0 -38.480,-12.500,0</coordinates></LineString></Placemark>
+    <Placemark><name>Marco BG-01</name><Point><coordinates>-38.5,-12.5,0</coordinates></Point></Placemark>
+    <Placemark><name>Área solicitada</name><Polygon><outerBoundaryIs><LinearRing><coordinates>-38.500,-12.500 -38.495,-12.500 -38.495,-12.496 -38.500,-12.500</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>`;
+  await page.setInputFiles('#arquivo', { name: 'AS-999.kmz', mimeType: 'application/vnd.google-earth.kmz', buffer: kmzDe('doc.kml', Buffer.from(as)) });
+  await page.waitForFunction(() => !document.querySelector('#escolha').hidden && document.querySelector('#fonte').options.length === 2);
+  const opcoes = await page.locator('#fonte option').allTextContents();
+  if (!opcoes[0].startsWith('Eixo: Eixo do duto') || !opcoes[1].startsWith('Área: Área solicitada')) falha('lista ' + opcoes.join(' | '));
+  await page.selectOption('#fonte', '0');
+  await page.waitForFunction(() => window.__voo && window.__voo.comprimentoM > 2000 && !document.querySelector('#blocoLargura').hidden);
+  const ha100 = await page.evaluate(() => __voo.areaHa);
+  await page.locator('#largura').fill('200');
+  await page.waitForFunction((h) => window.__voo.areaHa > h * 1.9, ha100);
+  await page.screenshot({ path: join(saida, 'captura-eixo.png') });
+  console.log('eixo ok', ha100.toFixed(1), 'ha com 100 m');
+  await page.click('#btnExemplo');
+  await page.waitForFunction(() => window.__voo.areaHa > 40 && document.querySelector('#blocoLargura').hidden);
   // missões do DJI Fly: um botão por parte, cada KMZ com wpmz/template.kml e wpmz/waylines.wpml
   const { listarZip } = await import('../src/voo.js');
   const nPartes = await page.locator('#partes button').count();

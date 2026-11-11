@@ -177,3 +177,39 @@ test('missão de teste com 5 pontos e código do drone vindo da missão-modelo',
   assert.match(way, /<wpml:droneSubEnumValue>1</);
   await assert.rejects(lerMissaoDJIFly(kmzDe('doc.kml', Buffer.from('<kml/>')), inflar), /DJI Fly/);
 });
+
+test('KMZ de AS: lê áreas e eixos com nome e ignora os marcos (pontos)', async () => {
+  const { lerGeometriasKML } = await import('../src/voo.js');
+  const kml = `<kml><Document><Folder><name>AS</name>
+    <Placemark><name><![CDATA[Eixo do duto]]></name><LineString><coordinates>-38.50,-12.50,0 -38.49,-12.505,0 -38.48,-12.50,0</coordinates></LineString></Placemark>
+    <Placemark><name>Marco BG-01</name><Point><coordinates>-38.5,-12.5,0</coordinates></Point></Placemark>
+    <Placemark><name>Área solicitada</name><MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>
+      -38.50,-12.50 -38.49,-12.50 -38.49,-12.49 -38.50,-12.50</coordinates></LinearRing></outerBoundaryIs>
+      <innerBoundaryIs><LinearRing><coordinates>1,1 2,2 3,1 1,1</coordinates></LinearRing></innerBoundaryIs></Polygon></MultiGeometry></Placemark>
+  </Folder></Document></kml>`;
+  const g = lerGeometriasKML(kml);
+  assert.deepEqual(g.map((x) => [x.tipo, x.nome, x.pts.length]), [['eixo', 'Eixo do duto', 3], ['area', 'Área solicitada', 3]]);
+});
+
+test('faixa ao longo do eixo: linhas paralelas cobrindo a largura e missão DJI Fly', async () => {
+  const { planejarCorredor, comprimento } = await import('../src/voo.js');
+  const p = projecao(-12.5, -38.5);
+  // eixo em "L": 1.000 m para leste e 600 m para norte
+  const eixo = [[0, 0], [1000, 0], [1000, 600]].map(p.de);
+  const pl = planejarCorredor({ eixo, largura: 100, camera: mini, altura: 80, frontal: 0.8, lateral: 0.7 });
+  perto(pl.comprimentoM, 1600, 1);
+  perto(comprimento(eixo), 1600, 1);
+  perto(pl.areaHa, 16, 0.1);
+  assert.equal(pl.nLinhas, Math.ceil(100 / pl.espacLinhas));
+  assert.ok(pl.fotos > 0 && pl.estacoesGeo.length === pl.fotos);
+  // toda foto fica dentro da faixa + meia pegada (perto do eixo)
+  const meia = 50 + pl.espacLinhas;
+  for (const e of pl.estacoesGeo) {
+    const [x, y] = p.para([e.lat, e.lon]);
+    const d = Math.min(x <= 1000 ? Math.abs(y) : Math.hypot(x - 1000, y), y >= 0 ? Math.abs(x - 1000) : Infinity);
+    assert.ok(d <= meia + pl.base, `foto a ${d.toFixed(1)} m do eixo`);
+  }
+  const ms = missoesDJIFly(pl, { altura: 80, drone: mini });
+  assert.equal(ms.reduce((s, m) => s + m.pontos, 0), pl.fotos);
+  assert.throws(() => planejarCorredor({ eixo: [eixo[0]], largura: 100, camera: mini, altura: 80, frontal: 0.8, lateral: 0.7 }), /2 pontos/);
+});

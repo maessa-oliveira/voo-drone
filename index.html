@@ -37,6 +37,15 @@
       <button type="button" id="btnLimpar" class="sec">Limpar</button>
       <input type="file" id="arquivo" accept=".kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" hidden>
     </div>
+    <div id="escolha" class="faixa" hidden>
+      <label for="fonte">O que mapear deste arquivo</label>
+      <select id="fonte"></select>
+    </div>
+    <div id="blocoLargura" class="faixa" hidden>
+      <label for="largura">Largura da faixa <b id="vLargura">100 m</b></label>
+      <input type="range" id="largura" min="20" max="400" step="10" value="100">
+      <span class="sub">metade de cada lado do eixo; as linhas de voo acompanham o eixo</span>
+    </div>
     <p id="instrucao" class="dica" hidden>Toque no mapa para marcar os vértices da área (toque no primeiro vértice ou em "Concluir" para fechar).</p>
   </section>
 
@@ -64,7 +73,7 @@
         <input type="range" id="lateral" min="50" max="85" step="5" value="70">
       </div>
     </div>
-    <div class="faixa">
+    <div class="faixa" id="blocoDirecao">
       <label for="direcao">Direção das linhas <b id="vDirecao">0°</b></label>
       <div class="com-botao">
         <input type="range" id="direcao" min="0" max="179" step="1" value="0">

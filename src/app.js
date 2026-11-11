@@ -1,5 +1,5 @@
 // Interface do planejador. Os cálculos estão em ./voo.js.
-import { DRONES, gsd, planejar, direcaoSugerida, lerKML, kmlDeKMZ, missoesDJIFly, lerMissaoDJIFly, EXEMPLO_AREA } from './voo.js';
+import { DRONES, gsd, planejar, planejarCorredor, direcaoSugerida, lerGeometriasKML, area as areaPlano, projecao, comprimento, kmlDeKMZ, missoesDJIFly, lerMissaoDJIFly, EXEMPLO_AREA } from './voo.js';
 
 const L = window.L;
 const $ = (id) => document.getElementById(id);
@@ -24,6 +24,8 @@ let vertices = [];
 let desenhando = false;
 let plano = null;
 let missoes = [];
+let eixo = null; // linha (lat, lon) quando o arquivo traz o eixo do duto em vez de uma área
+let geos = []; // geometrias do último arquivo aberto
 let modelo = null; // { nome, droneEnum, droneSub } lido da missão-modelo do DJI Fly
 
 // ---------- controles ----------
@@ -40,12 +42,20 @@ function rotulos() {
   $('vFrontal').textContent = `${$('frontal').value}%`;
   $('vLateral').textContent = `${$('lateral').value}%`;
   $('vDirecao').textContent = `${p.direcao}°`;
+  $('vLargura').textContent = `${$('largura').value} m`;
   $('vGsd').textContent = `${nf(gsd(p.camera, p.altura).gsdCm, 2)} cm/px`;
 }
 
 // ---------- desenho da área ----------
 function desenharArea() {
   camArea.clearLayers();
+  $('blocoLargura').hidden = !eixo;
+  $('blocoDirecao').hidden = !!eixo;
+  if (eixo) {
+    if (plano?.areaGeo) L.polygon(plano.areaGeo, { color: '#e0a64a', weight: 1.5, fillOpacity: 0.1, dashArray: '4 4' }).addTo(camArea);
+    L.polyline(eixo, { color: '#e0a64a', weight: 3 }).addTo(camArea);
+    return;
+  }
   if (!vertices.length) return;
   if (vertices.length >= 3 && !desenhando) {
     L.polygon(vertices, { color: '#e0a64a', weight: 2.5, fillOpacity: 0.12 }).addTo(camArea);
@@ -64,7 +74,8 @@ function desenharArea() {
 }
 
 function iniciarDesenho() {
-  vertices = []; plano = null; desenhando = true;
+  vertices = []; eixo = null; plano = null; desenhando = true;
+  $('escolha').hidden = true;
   camVoo.clearLayers(); camArea.clearLayers();
   $('btnDesenhar').textContent = 'Concluir';
   $('btnDesenhar').classList.add('ativo');
@@ -101,9 +112,12 @@ function atualizar(enquadrar = false) {
   desenharArea();
   camVoo.clearLayers();
   $('erro').textContent = '';
-  if (desenhando || vertices.length < 3) { limparResultado(); return; }
+  if (desenhando || (!eixo && vertices.length < 3)) { limparResultado(); return; }
   try {
-    plano = planejar({ area: vertices, ...params() });
+    plano = eixo
+      ? planejarCorredor({ eixo, largura: +$('largura').value, ...params() })
+      : planejar({ area: vertices, ...params() });
+    if (eixo) desenharArea();
   } catch (e) {
     plano = null; limparResultado();
     $('erro').textContent = e.message.charAt(0).toUpperCase() + e.message.slice(1) + '.';
@@ -132,19 +146,21 @@ function atualizar(enquadrar = false) {
   $('rPrec').textContent = `H ${nf(p.precisao.horizontalCm[0], 1)}–${nf(p.precisao.horizontalCm[1], 1)} cm · V ${nf(p.precisao.verticalCm[0], 1)}–${nf(p.precisao.verticalCm[1], 1)} cm`;
   window.__voo = p;
   window.__missoes = missoes;
-  if (enquadrar) mapa.fitBounds(L.latLngBounds(vertices), margem());
+  if (enquadrar) mapa.fitBounds(L.latLngBounds(eixo ? plano.areaGeo : vertices), margem());
 }
 const margem = () => (innerWidth > 720
   ? { paddingTopLeft: [400, 40], paddingBottomRight: [60, 40] }
   : { paddingTopLeft: [20, 20], paddingBottomRight: [20, innerHeight * 0.55 + 20] });
 
 // ---------- eventos ----------
-for (const id of ['altura', 'frontal', 'lateral', 'direcao']) $(id).addEventListener('input', () => atualizar());
+for (const id of ['altura', 'frontal', 'lateral', 'direcao', 'largura']) $(id).addEventListener('input', () => atualizar());
+$('fonte').addEventListener('change', () => usarGeometria(geos[+$('fonte').value]));
 $('camera').addEventListener('change', () => atualizar());
 $('modo').addEventListener('change', () => atualizar());
 $('btnDesenhar').addEventListener('click', () => (desenhando ? concluir() : iniciarDesenho()));
 $('btnLimpar').addEventListener('click', () => {
-  vertices = []; desenhando = false; plano = null;
+  vertices = []; eixo = null; desenhando = false; plano = null;
+  $('escolha').hidden = true;
   camArea.clearLayers(); camVoo.clearLayers(); limparResultado();
   $('btnDesenhar').textContent = 'Desenhar área'; $('btnDesenhar').classList.remove('ativo');
 });
@@ -225,13 +241,42 @@ $('arquivo').addEventListener('change', async () => {
     const texto = /\.kmz$/i.test(f.name) || new Uint8Array(buf, 0, 2).join() === '80,75'
       ? await kmlDeKMZ(buf, inflarRaw)
       : new TextDecoder().decode(buf);
-    usarArea(lerKML(texto));
+    abrirGeometrias(lerGeometriasKML(texto));
   } catch (e) {
     $('erro').textContent = `${f.name}: ${e.message}.`;
   }
 });
 
+// descreve cada geometria do arquivo para a lista "O que mapear"
+function rotuloGeo(g, i) {
+  const nome = g.nome || `${g.tipo === 'eixo' ? 'Linha' : 'Área'} ${i + 1}`;
+  if (g.tipo === 'eixo') return `Eixo: ${nome} (${nf(comprimento(g.pts) / 1000, 2)} km) → faixa`;
+  const lat0 = g.pts[0][0], lon0 = g.pts[0][1];
+  return `Área: ${nome} (${nf(areaPlano(g.pts.map(projecao(lat0, lon0).para)) / 10000, 1)} ha)`;
+}
+
+function abrirGeometrias(lista) {
+  if (!lista.length) throw new Error('não encontrei área (polígono) nem eixo (linha) no arquivo');
+  geos = lista;
+  // preferência: primeira área; sem área, o eixo mais longo
+  let i = lista.findIndex((g) => g.tipo === 'area');
+  if (i < 0) i = lista.reduce((b, g, k) => (comprimento(g.pts) > comprimento(lista[b].pts) ? k : b), 0);
+  $('fonte').replaceChildren(...lista.map((g, k) => new Option(rotuloGeo(g, k), k)));
+  $('fonte').value = i;
+  $('escolha').hidden = lista.length < 2;
+  usarGeometria(lista[i]);
+}
+
+function usarGeometria(g) {
+  if (g.tipo === 'eixo') {
+    eixo = g.pts.map((v) => [...v]); vertices = []; desenhando = false;
+    $('btnDesenhar').textContent = 'Desenhar área'; $('btnDesenhar').classList.remove('ativo');
+    atualizar(true);
+  } else usarArea(g.pts);
+}
+
 function usarArea(pts) {
+  eixo = null;
   vertices = pts.map((v) => [...v]);
   desenhando = false;
   $('btnDesenhar').textContent = 'Redesenhar área'; $('btnDesenhar').classList.remove('ativo');
@@ -240,6 +285,8 @@ function usarArea(pts) {
 }
 
 function carregarExemplo() {
+  eixo = null;
+  $('escolha').hidden = true;
   vertices = EXEMPLO_AREA.map((v) => [...v]);
   desenhando = false;
   $('btnDesenhar').textContent = 'Redesenhar área'; $('btnDesenhar').classList.remove('ativo');
